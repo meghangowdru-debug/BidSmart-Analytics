@@ -70,7 +70,7 @@ export const SellerDashboardPage = () => {
     try {
       const [aucRes, prodRes, catRes] = await Promise.all([
         auctionsApi.listMyAuctions({ page_size: 50 }),
-        productsApi.listProducts({ seller_id: user?.id, page_size: 50 }),
+        productsApi.listMyProducts({ page_size: 50 }),
         categoriesApi.listCategories(),
       ]);
       setAuctions(aucRes.items || []);
@@ -154,7 +154,8 @@ export const SellerDashboardPage = () => {
         image_url: '',
         thumbnail_url: '',
       });
-      loadSellerData();
+      await loadSellerData();
+      setActiveTab('products');
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {

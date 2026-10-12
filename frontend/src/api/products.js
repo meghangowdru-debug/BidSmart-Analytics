@@ -7,6 +7,12 @@ export const productsApi = {
     return response.data;
   },
 
+  // Seller: list authenticated seller's own inventory
+  listMyProducts: async (params = {}) => {
+    const response = await apiClient.get('/products/seller/me', { params });
+    return response.data;
+  },
+
   // Get product by ID
   getProduct: async (productId) => {
     const response = await apiClient.get(`/products/${productId}`);
