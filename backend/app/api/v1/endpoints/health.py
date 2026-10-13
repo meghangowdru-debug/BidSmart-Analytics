@@ -11,25 +11,49 @@ from datetime import datetime, timezone
 
 router = APIRouter()
 
+DB_HEALTH_REQUIRED_FIELDS = (
+    "status",
+    "latency_ms",
+    "server_version",
+    "pool_size",
+    "checked_in_connections",
+    "checked_out_connections",
+    "overflow",
+)
+DB_DEGRADED_LATENCY_MS = 500.0
+
 
 def _classify_db_health(db_telemetry: dict) -> str:
     """Return the service status for the database diagnostics payload.
 
     Negative pool overflow values are valid for QueuePool when connections are
     being returned to the pool; they should not be treated as a health failure.
+    Latency above 500 ms is degraded: this tolerates transient hosted-network
+    jitter while flagging unusually slow responses. The threshold changes
+    classification only; it does not improve database performance.
     """
-    if not db_telemetry:
+    if not isinstance(db_telemetry, dict) or any(
+        field not in db_telemetry or db_telemetry[field] is None
+        for field in DB_HEALTH_REQUIRED_FIELDS
+    ):
         return "unhealthy"
 
     if str(db_telemetry.get("status", "")).lower() != "connected":
         return "unhealthy"
 
-    latency_ms = float(db_telemetry.get("latency_ms", 0.0) or 0.0)
-    pool_size = int(db_telemetry.get("pool_size", 0) or 0)
-    checked_out = int(db_telemetry.get("checked_out_connections", 0) or 0)
-    overflow = int(db_telemetry.get("overflow", 0) or 0)
+    try:
+        latency_ms = float(db_telemetry["latency_ms"])
+        pool_size = int(db_telemetry["pool_size"])
+        checked_in = int(db_telemetry["checked_in_connections"])
+        checked_out = int(db_telemetry["checked_out_connections"])
+        overflow = int(db_telemetry["overflow"])
+    except (TypeError, ValueError):
+        return "unhealthy"
 
-    if latency_ms > 100.0:
+    if latency_ms < 0 or pool_size < 0 or checked_in < 0 or checked_out < 0:
+        return "unhealthy"
+
+    if latency_ms > DB_DEGRADED_LATENCY_MS:
         return "degraded"
 
     if pool_size > 0 and checked_out > pool_size:
