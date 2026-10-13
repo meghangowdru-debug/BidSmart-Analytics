@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     MYSQL_POOL_RECYCLE: int = 1800
     MYSQL_ECHO: bool = False
 
+    # Background Auction Scheduler
+    ENABLE_AUCTION_SCHEDULER: bool = True
+    SCHEDULER_INTERVAL_SECONDS: int = 30
+
     # CORS Configuration
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://localhost:5173",

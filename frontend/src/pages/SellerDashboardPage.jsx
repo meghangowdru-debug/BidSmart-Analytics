@@ -27,9 +27,17 @@ import { ErrorAlert } from '../components/common/ErrorAlert';
 import { SuccessAlert } from '../components/common/SuccessAlert';
 import { getErrorMessage } from '../api/client';
 import { canCloseAuction, canCancelAuction } from '../utils/auctionActions';
+import {
+  addLocalDaysToDateTime,
+  getMinimumAuctionEnd,
+  toLocalDateTimeInput,
+  toUtcISOString,
+  validateAuctionSchedule,
+} from '../utils/auctionScheduling';
 
 export const SellerDashboardPage = () => {
   const { user } = useAuth();
+  const [scheduleClock, setScheduleClock] = useState(() => new Date());
 
   const [activeTab, setActiveTab] = useState('auctions'); // 'auctions' | 'products' | 'analytics'
   const [auctions, setAuctions] = useState([]);
@@ -53,19 +61,29 @@ export const SellerDashboardPage = () => {
     thumbnail_url: '',
   });
 
-  const [auctionForm, setAuctionForm] = useState({
-    product_id: '',
-    starting_price: '10.00',
-    reserve_price: '20.00',
-    minimum_increment: '1.00',
-    start_time: new Date().toISOString().slice(0, 16),
-    end_time: new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 16),
+  const [auctionForm, setAuctionForm] = useState(() => {
+    const startTime = toLocalDateTimeInput(new Date());
+    const endTime = addLocalDaysToDateTime(startTime, 3);
+    return {
+      product_id: '',
+      starting_price: '10.00',
+      reserve_price: '20.00',
+      minimum_increment: '1.00',
+      start_time: startTime,
+      end_time: endTime,
+    };
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [scheduleError, setScheduleError] = useState(null);
 
-  const loadSellerData = useCallback(async () => {
-    setIsLoading(true);
+  useEffect(() => {
+    const clock = setInterval(() => setScheduleClock(new Date()), 30000);
+    return () => clearInterval(clock);
+  }, []);
+
+  const loadSellerData = useCallback(async (showLoading = true) => {
+    if (showLoading) setIsLoading(true);
     setError(null);
     try {
       const [aucRes, prodRes, catRes] = await Promise.all([
@@ -79,12 +97,17 @@ export const SellerDashboardPage = () => {
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   }, [user?.id]);
 
   useEffect(() => {
     loadSellerData();
+  }, [loadSellerData]);
+
+  useEffect(() => {
+    const refreshTimer = setInterval(() => loadSellerData(false), 30000);
+    return () => clearInterval(refreshTimer);
   }, [loadSellerData]);
 
   // Actions
@@ -166,6 +189,16 @@ export const SellerDashboardPage = () => {
   // Auction launch submission
   const handleCreateAuction = async (e) => {
     e.preventDefault();
+    const validationError = validateAuctionSchedule(
+      auctionForm.start_time,
+      auctionForm.end_time,
+      new Date()
+    );
+    if (validationError) {
+      setScheduleError(validationError);
+      return;
+    }
+    setScheduleError(null);
     setIsSubmitting(true);
     setError(null);
     try {
@@ -174,8 +207,8 @@ export const SellerDashboardPage = () => {
         starting_price: Number(auctionForm.starting_price),
         reserve_price: auctionForm.reserve_price ? Number(auctionForm.reserve_price) : undefined,
         minimum_increment: Number(auctionForm.minimum_increment),
-        start_time: new Date(auctionForm.start_time).toISOString(),
-        end_time: new Date(auctionForm.end_time).toISOString(),
+        start_time: toUtcISOString(auctionForm.start_time),
+        end_time: toUtcISOString(auctionForm.end_time),
       });
       setSuccess('Auction listing launched successfully!');
       setShowAuctionModal(false);
@@ -187,12 +220,28 @@ export const SellerDashboardPage = () => {
     }
   };
 
+  const handleScheduleFieldChange = (field, value) => {
+    const updatedForm = { ...auctionForm, [field]: value };
+    setAuctionForm(updatedForm);
+    setScheduleError(validateAuctionSchedule(
+      updatedForm.start_time,
+      updatedForm.end_time,
+      new Date()
+    ));
+  };
+
   const openAuctionModalForProduct = (product) => {
+    const startTime = toLocalDateTimeInput(new Date());
     setSelectedProductForAuction(product);
-    setAuctionForm((prev) => ({
-      ...prev,
+    setScheduleError(null);
+    setAuctionForm({
       product_id: product.id,
-    }));
+      starting_price: '10.00',
+      reserve_price: '20.00',
+      minimum_increment: '1.00',
+      start_time: startTime,
+      end_time: addLocalDaysToDateTime(startTime, 3),
+    });
     setShowAuctionModal(true);
   };
 
@@ -699,9 +748,15 @@ export const SellerDashboardPage = () => {
                   <label className="block font-semibold text-slate-700 mb-1">Start Time</label>
                   <input
                     type="datetime-local"
+                    min={toLocalDateTimeInput(scheduleClock)}
                     required
                     value={auctionForm.start_time}
-                    onChange={(e) => setAuctionForm({ ...auctionForm, start_time: e.target.value })}
+                    onChange={(e) => handleScheduleFieldChange('start_time', e.target.value)}
+                    onInvalid={() => setScheduleError(validateAuctionSchedule(
+                      auctionForm.start_time,
+                      auctionForm.end_time,
+                      new Date()
+                    ))}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
                   />
                 </div>
@@ -710,13 +765,24 @@ export const SellerDashboardPage = () => {
                   <label className="block font-semibold text-slate-700 mb-1">End Time</label>
                   <input
                     type="datetime-local"
+                    min={getMinimumAuctionEnd(auctionForm.start_time, scheduleClock)}
                     required
                     value={auctionForm.end_time}
-                    onChange={(e) => setAuctionForm({ ...auctionForm, end_time: e.target.value })}
+                    onChange={(e) => handleScheduleFieldChange('end_time', e.target.value)}
+                    onInvalid={() => setScheduleError(validateAuctionSchedule(
+                      auctionForm.start_time,
+                      auctionForm.end_time,
+                      new Date()
+                    ))}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs"
                   />
                 </div>
               </div>
+              {scheduleError && (
+                <p role="alert" className="text-xs font-medium text-rose-600">
+                  {scheduleError}
+                </p>
+              )}
 
               <div className="pt-3 flex justify-end space-x-2">
                 <button

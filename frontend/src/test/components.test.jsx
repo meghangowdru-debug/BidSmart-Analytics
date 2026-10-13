@@ -1,6 +1,6 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
 import { StatusBadge, RoleBadge, ConditionBadge } from '../components/common/Badge';
 import { CountdownTimer } from '../components/common/CountdownTimer';
 import { StatsCard } from '../components/dashboard/StatsCard';
@@ -68,6 +68,26 @@ describe('Common UI Components', () => {
       render(<CountdownTimer endTime={futureTime} />);
       expect(screen.getByText('h')).toBeInTheDocument();
       expect(screen.getByText('m')).toBeInTheDocument();
+    });
+
+    it('updates the countdown every second without a page refresh', () => {
+      vi.useFakeTimers();
+      const now = new Date();
+      vi.setSystemTime(now);
+      render(<CountdownTimer endTime={new Date(now.getTime() + 61000).toISOString()} compact />);
+
+      expect(screen.getByText('01m 01s left')).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1000));
+      expect(screen.getByText('01m 00s left')).toBeInTheDocument();
+
+      vi.useRealTimers();
+    });
+
+    it('shows a starting label when an upcoming auction reaches its start time', () => {
+      const pastStart = new Date(Date.now() - 10000).toISOString();
+      render(<CountdownTimer endTime={pastStart} expiredLabel="Auction Starting" />);
+
+      expect(screen.getByText('Auction Starting')).toBeInTheDocument();
     });
   });
 

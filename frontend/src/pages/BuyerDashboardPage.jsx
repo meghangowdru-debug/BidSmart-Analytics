@@ -57,12 +57,13 @@ export const BuyerDashboardPage = () => {
   // Load details for watchlisted items
   useEffect(() => {
     let isMounted = true;
-    const fetchWatchlistItems = async () => {
+    let refreshTimer;
+    const fetchWatchlistItems = async (showLoading = false) => {
       if (watchlistIds.length === 0) {
         setWatchlistAuctions([]);
         return;
       }
-      setIsLoadingWatchlist(true);
+      if (showLoading) setIsLoadingWatchlist(true);
       try {
         const promises = watchlistIds.map((id) =>
           auctionsApi.getAuction(id).catch(() => null)
@@ -74,13 +75,18 @@ export const BuyerDashboardPage = () => {
       } catch (err) {
         console.error('Failed to load watchlist details:', err);
       } finally {
-        if (isMounted) setIsLoadingWatchlist(false);
+        if (isMounted && showLoading) setIsLoadingWatchlist(false);
       }
     };
 
     if (activeTab === 'watchlist') {
-      fetchWatchlistItems();
+      fetchWatchlistItems(true);
+      refreshTimer = setInterval(() => fetchWatchlistItems(), 30000);
     }
+    return () => {
+      isMounted = false;
+      clearInterval(refreshTimer);
+    };
   }, [watchlistIds, activeTab]);
 
   // Compute metrics
@@ -328,7 +334,11 @@ export const BuyerDashboardPage = () => {
                         </span>
                       </div>
                       <div className="text-right">
-                        <CountdownTimer endTime={auc.end_time} compact />
+                        <CountdownTimer
+                          endTime={auc.status === 'SCHEDULED' ? auc.start_time : auc.end_time}
+                          compact
+                          expiredLabel={auc.status === 'SCHEDULED' ? 'Auction Starting' : 'Auction Ended'}
+                        />
                       </div>
                     </div>
 

@@ -1,8 +1,9 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { BrowserRouter } from 'react-router-dom';
 import { AuctionCard } from '../components/auctions/AuctionCard';
+import { AuctionFilters } from '../components/auctions/AuctionFilters';
 import { BidConsole } from '../components/auctions/BidConsole';
 import { BidHistoryTable } from '../components/auctions/BidHistoryTable';
 import { canCloseAuction, canCancelAuction } from '../utils/auctionActions';
@@ -74,6 +75,73 @@ describe('Auction Feature Components', () => {
       expect(screen.getByText('Horology')).toBeInTheDocument();
       expect(screen.getByText('$75.00')).toBeInTheDocument();
       expect(screen.getByText(/3 bids/i)).toBeInTheDocument();
+    });
+
+    it('counts scheduled auctions down to start time instead of close time', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-12T10:00:00.000Z'));
+
+      const scheduledAuction = {
+        ...mockAuction,
+        status: 'SCHEDULED',
+        start_time: '2026-10-12T10:30:00.000Z',
+        end_time: '2026-10-12T11:30:00.000Z',
+      };
+
+      render(
+        <BrowserRouter>
+          <AuthProvider>
+            <WatchlistProvider>
+              <AuctionCard auction={scheduledAuction} />
+            </WatchlistProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      );
+
+      expect(screen.getByText(/30m 00s left/i)).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+  });
+
+  describe('AuctionFilters', () => {
+    it('uses Active & Upcoming as the default catalog status filter', () => {
+      const onFilterChange = vi.fn();
+
+      render(
+        <AuctionFilters
+          filters={{ status_filter: 'AVAILABLE' }}
+          categories={[]}
+          onFilterChange={onFilterChange}
+          onReset={vi.fn()}
+        />
+      );
+
+      expect(screen.getByDisplayValue('Status: Active & Upcoming')).toBeInTheDocument();
+    });
+
+    it('allows buyers to choose Active Only and Upcoming Only filters', () => {
+      const onFilterChange = vi.fn();
+
+      render(
+        <AuctionFilters
+          filters={{ status_filter: 'AVAILABLE', page: 2 }}
+          categories={[]}
+          onFilterChange={onFilterChange}
+          onReset={vi.fn()}
+        />
+      );
+
+      const statusSelect = screen.getByDisplayValue('Status: Active & Upcoming');
+
+      fireEvent.change(statusSelect, {
+        target: { value: 'ACTIVE' },
+      });
+      expect(onFilterChange).toHaveBeenCalledWith({ status_filter: 'ACTIVE', page: 1 });
+
+      fireEvent.change(statusSelect, {
+        target: { value: 'SCHEDULED' },
+      });
+      expect(onFilterChange).toHaveBeenCalledWith({ status_filter: 'SCHEDULED', page: 1 });
     });
   });
 

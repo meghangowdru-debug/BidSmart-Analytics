@@ -47,12 +47,13 @@ export const AuctionFilters = ({
         {/* Status Filter */}
         <div>
           <select
-            value={filters.status_filter || 'ACTIVE'}
+            value={filters.status_filter || 'AVAILABLE'}
             onChange={(e) => handleChange('status_filter', e.target.value)}
             className="w-full py-2 px-3 text-xs rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
+            <option value="AVAILABLE">Status: Active & Upcoming</option>
             <option value="ACTIVE">Status: Active Only</option>
-            <option value="SCHEDULED">Status: Upcoming</option>
+            <option value="SCHEDULED">Status: Upcoming Only</option>
             <option value="COMPLETED">Status: Completed</option>
             <option value="ALL">Status: All Statuses</option>
           </select>

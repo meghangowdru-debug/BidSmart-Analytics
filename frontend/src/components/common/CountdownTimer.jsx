@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
 import { parseAuctionDateMs } from '../../utils/auctionActions';
 
-export const CountdownTimer = ({ endTime, onExpire, compact = false }) => {
+export const CountdownTimer = ({ endTime, onExpire, compact = false, expiredLabel = 'Auction Ended' }) => {
   const [timeLeft, setTimeLeft] = useState(() => calculateTimeLeft(endTime));
 
   function calculateTimeLeft(target) {
@@ -55,7 +55,7 @@ export const CountdownTimer = ({ endTime, onExpire, compact = false }) => {
     return (
       <span className="inline-flex items-center text-rose-600 font-semibold text-xs tracking-wide">
         <Clock className="w-3.5 h-3.5 mr-1" />
-        Auction Ended
+        {expiredLabel}
       </span>
     );
   }

@@ -3,12 +3,14 @@ BidSmart Analytics — Main FastAPI Application Entry Point
 Phases: 3 (FastAPI Backend & Connection Pool) & 4 (Authentication, User Roles, and RBAC)
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
+from app.core.scheduler import auction_scheduler_loop
 from app.db.session import engine, check_db_health
 from app.api.v1.api import api_router
 from app.api.v1.endpoints.health import get_health_status
@@ -41,12 +43,30 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Critical Database Connection Failure on Startup: {str(e)}")
 
+    # Start background auction scheduler if enabled
+    scheduler_task = None
+    if settings.ENABLE_AUCTION_SCHEDULER:
+        scheduler_task = asyncio.create_task(
+            auction_scheduler_loop(),
+            name="auction_scheduler",
+        )
+    else:
+        logger.info("Background auction scheduler is disabled (ENABLE_AUCTION_SCHEDULER=False)")
+
     yield
+
+    # Clean shutdown: stop the scheduler before disposing the DB pool
+    if scheduler_task is not None:
+        logger.info("Shutting down background auction scheduler...")
+        scheduler_task.cancel()
+        await asyncio.gather(scheduler_task, return_exceptions=True)
+        logger.info("Background auction scheduler stopped.")
 
     # Clean engine shutdown
     logger.info("Disposing SQLAlchemy Engine Connection Pool...")
     engine.dispose()
     logger.info("BidSmart Analytics API shutdown complete.")
+
 
 
 # Initialize FastAPI instance with OpenAPI documentation metadata

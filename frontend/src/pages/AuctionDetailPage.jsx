@@ -60,10 +60,10 @@ export const AuctionDetailPage = () => {
   useEffect(() => {
     fetchAuctionAndBids(true);
 
-    // Setup live polling interval for active auctions
+    // Setup live polling interval for auctions whose timing can change state
     const interval = setInterval(() => {
-      // Only poll quietly in background if auction is ACTIVE
-      if (auction?.status === 'ACTIVE') {
+      // Poll quietly while timing can change the visible lifecycle state.
+      if (['ACTIVE', 'SCHEDULED'].includes(auction?.status)) {
         fetchAuctionAndBids(false);
       }
     }, AUCTION_POLL_INTERVAL_MS);
@@ -148,6 +148,8 @@ export const AuctionDetailPage = () => {
   }
 
   const product = auction?.product || {};
+  const countdownTarget = auction.status === 'SCHEDULED' ? auction.start_time : auction.end_time;
+  const countdownLabel = auction.status === 'SCHEDULED' ? 'Starts In' : 'Time Remaining';
   const currentPrice = auction.current_highest_bid !== null && auction.current_highest_bid !== undefined
     ? Number(auction.current_highest_bid)
     : Number(auction.starting_price || 0);
@@ -315,9 +317,9 @@ export const AuctionDetailPage = () => {
             {/* Countdown Banner */}
             <div>
               <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
-                Time Remaining
+                {countdownLabel}
               </span>
-              <CountdownTimer endTime={auction.end_time} />
+              <CountdownTimer endTime={countdownTarget} onExpire={() => fetchAuctionAndBids(false)} />
             </div>
 
             {/* Pricing Section */}

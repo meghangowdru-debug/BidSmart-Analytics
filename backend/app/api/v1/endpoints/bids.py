@@ -38,6 +38,23 @@ from app.schemas.bid import (
 router = APIRouter()
 
 
+def _sync_scheduled_auction_lifecycle(db: Session, auction_id: int) -> None:
+    """Activate a scheduled auction whose bidding window is currently open."""
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    activated = db.query(Auction).filter(
+        Auction.id == auction_id,
+        Auction.status == AuctionStatus.SCHEDULED,
+        Auction.start_time <= now_naive,
+        Auction.end_time > now_naive,
+    ).update(
+        {Auction.status: AuctionStatus.ACTIVE},
+        synchronize_session=False,
+    )
+    if activated:
+        db.commit()
+
+
 def mask_username(username: str) -> str:
     """
     Anonymizes bidder usernames for public and competing buyer displays.
@@ -195,6 +212,8 @@ def place_atomic_bid(
     anti-snipe countdown extensions, and audit logging.
     Delegates to MariaDB's sp_place_bid stored procedure with automatic rollback on conflict.
     """
+    _sync_scheduled_auction_lifecycle(db, auction_id)
+
     # Capture previous winner for outbid notification
     prev_winner_id = db.query(Auction.winner_id).filter(Auction.id == auction_id).scalar()
 

@@ -10,6 +10,11 @@ from pydantic import BaseModel, Field, model_validator, field_validator, ConfigD
 from app.schemas.product import ProductOut
 
 
+def _utc_aware(value: datetime) -> datetime:
+    """Interpret naive timestamps as UTC and normalize aware timestamps to UTC."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
 class AuctionBase(BaseModel):
     starting_price: Decimal = Field(..., ge=Decimal("0.01"), description="Initial minimum opening bid")
     reserve_price: Optional[Decimal] = Field(None, ge=Decimal("0.01"), description="Optional hidden minimum reserve price")
@@ -40,9 +45,13 @@ class AuctionCreate(AuctionBase):
             self.start_time = start
 
         # Normalize timezones for comparison
-        start_comp = start if start.tzinfo else start.replace(tzinfo=timezone.utc)
-        end_comp = self.end_time if self.end_time.tzinfo else self.end_time.replace(tzinfo=timezone.utc)
+        start_comp = _utc_aware(start)
+        end_comp = _utc_aware(self.end_time)
 
+        if start_comp < now:
+            raise ValueError("Auction start time cannot be in the past.")
+        if end_comp < now:
+            raise ValueError("Auction end time cannot be in the past.")
         if end_comp <= start_comp:
             raise ValueError("Auction closing time ('end_time') must be strictly greater than start time ('start_time').")
 
@@ -59,6 +68,21 @@ class AuctionUpdate(BaseModel):
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     status: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_requested_times(self) -> "AuctionUpdate":
+        now = datetime.now(timezone.utc)
+        if self.start_time is not None and _utc_aware(self.start_time) < now:
+            raise ValueError("Auction start time cannot be in the past.")
+        if self.end_time is not None and _utc_aware(self.end_time) < now:
+            raise ValueError("Auction end time cannot be in the past.")
+        if (
+            self.start_time is not None
+            and self.end_time is not None
+            and _utc_aware(self.end_time) <= _utc_aware(self.start_time)
+        ):
+            raise ValueError("Auction closing time ('end_time') must be strictly greater than start time ('start_time').")
+        return self
 
     @field_validator("status")
     @classmethod

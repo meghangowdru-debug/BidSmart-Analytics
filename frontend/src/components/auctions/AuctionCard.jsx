@@ -15,6 +15,7 @@ export const AuctionCard = ({ auction }) => {
   const currentPrice = auction.current_highest_bid !== null && auction.current_highest_bid !== undefined
     ? Number(auction.current_highest_bid)
     : Number(auction.starting_price || 0);
+  const countdownTarget = auction.status === 'SCHEDULED' ? auction.start_time : auction.end_time;
 
   const watchlisted = isWatchlisted(auction.id);
 
@@ -103,7 +104,11 @@ export const AuctionCard = ({ auction }) => {
             <span className="text-xs text-slate-500 font-medium block">
               {auction.total_bids || 0} {auction.total_bids === 1 ? 'bid' : 'bids'}
             </span>
-            <CountdownTimer endTime={auction.end_time} compact />
+            <CountdownTimer
+              endTime={countdownTarget}
+              compact
+              expiredLabel={auction.status === 'SCHEDULED' ? 'Auction Starting' : 'Auction Ended'}
+            />
           </div>
         </div>
 

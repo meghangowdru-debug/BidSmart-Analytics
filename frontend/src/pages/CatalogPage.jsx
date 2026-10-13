@@ -16,7 +16,7 @@ export const CatalogPage = () => {
   const getFiltersFromUrl = useCallback(() => ({
     search: searchParams.get('search') || '',
     category_id: searchParams.get('category_id') ? Number(searchParams.get('category_id')) : undefined,
-    status_filter: searchParams.get('status_filter') || 'ACTIVE',
+    status_filter: searchParams.get('status_filter') || 'AVAILABLE',
     condition: searchParams.get('condition') || undefined,
     sort_by: searchParams.get('sort_by') || 'ending_soon',
     page: searchParams.get('page') ? Number(searchParams.get('page')) : 1,
@@ -50,8 +50,7 @@ export const CatalogPage = () => {
   useEffect(() => {
     let isMounted = true;
     const fetchAuctions = async () => {
-      setIsLoading(true);
-      setError(null);
+      if (!isMounted) return;
       try {
         const cleanParams = { ...filters };
         // Remove empty/undefined params
@@ -64,6 +63,7 @@ export const CatalogPage = () => {
         const data = await auctionsApi.listAuctions(cleanParams);
         if (isMounted) {
           setAuctionData(data);
+          setError(null);
         }
       } catch (err) {
         if (isMounted) {
@@ -76,9 +76,13 @@ export const CatalogPage = () => {
       }
     };
 
+    setIsLoading(true);
+    setError(null);
     fetchAuctions();
+    const refreshTimer = setInterval(fetchAuctions, 30000);
     return () => {
       isMounted = false;
+      clearInterval(refreshTimer);
     };
   }, [filters]);
 
@@ -88,7 +92,7 @@ export const CatalogPage = () => {
     const newParams = {};
     if (newFilters.search) newParams.search = newFilters.search;
     if (newFilters.category_id) newParams.category_id = newFilters.category_id;
-    if (newFilters.status_filter && newFilters.status_filter !== 'ACTIVE') newParams.status_filter = newFilters.status_filter;
+    if (newFilters.status_filter && newFilters.status_filter !== 'AVAILABLE') newParams.status_filter = newFilters.status_filter;
     if (newFilters.condition) newParams.condition = newFilters.condition;
     if (newFilters.sort_by && newFilters.sort_by !== 'ending_soon') newParams.sort_by = newFilters.sort_by;
     if (newFilters.page && newFilters.page > 1) newParams.page = newFilters.page;
@@ -99,7 +103,7 @@ export const CatalogPage = () => {
     const defaultFilters = {
       search: '',
       category_id: undefined,
-      status_filter: 'ACTIVE',
+      status_filter: 'AVAILABLE',
       condition: undefined,
       sort_by: 'ending_soon',
       page: 1,

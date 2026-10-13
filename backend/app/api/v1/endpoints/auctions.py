@@ -30,6 +30,7 @@ from app.schemas.auction import (
 )
 from app.schemas.settlement import AuctionCloseResult, BatchCloseResponse
 from app.services.auction_closing import close_single_auction, close_all_expired_auctions
+from app.services.auction_lifecycle import activate_due_scheduled_auctions
 from app.api.v1.endpoints.products import _format_product_out
 
 router = APIRouter()
@@ -47,13 +48,23 @@ ALLOWED_SORT_ORDERS = {
 }
 
 
+def _utc_naive(value: datetime) -> datetime:
+    """Normalize datetimes to naive UTC for MySQL TIMESTAMP comparisons."""
+    return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+
+
+def _sync_scheduled_auction_lifecycle(db: Session) -> None:
+    """Activate scheduled auctions whose bidding window is currently open."""
+    activate_due_scheduled_auctions(db)
+
+
 def _format_auction_out(a: Auction, viewer: Optional[User] = None) -> AuctionOut:
     """
     Constructs a sanitized AuctionOut schema.
     Security: Masks the reserve_price unless the viewer is the owning seller or an administrator.
     """
     now = datetime.now(timezone.utc)
-    end_utc = a.end_time.astimezone(timezone.utc) if getattr(a.end_time, "tzinfo", None) else a.end_time.replace(tzinfo=timezone.utc)
+    end_utc = _utc_naive(a.end_time).replace(tzinfo=timezone.utc)
     seconds_remaining = max(0, int((end_utc - now).total_seconds()))
     is_expired = now >= end_utc
 
@@ -86,8 +97,8 @@ def _format_auction_out(a: Auction, viewer: Optional[User] = None) -> AuctionOut
         reserve_price=visible_reserve,
         reserve_met=reserve_met,
         minimum_increment=a.minimum_increment,
-        start_time=a.start_time,
-        end_time=a.end_time,
+        start_time=_utc_naive(a.start_time).replace(tzinfo=timezone.utc),
+        end_time=end_utc,
         status=a.status.value if hasattr(a.status, "value") else str(a.status),
         total_bids=a.total_bids,
         winner_id=a.winner_id,
@@ -112,7 +123,7 @@ def _format_auction_out(a: Auction, viewer: Optional[User] = None) -> AuctionOut
 def list_auctions(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    status_filter: Optional[str] = Query("ACTIVE", description="Auction status ('ACTIVE', 'SCHEDULED', 'COMPLETED', or 'ALL')"),
+    status_filter: Optional[str] = Query("AVAILABLE", description="Auction status ('AVAILABLE', 'ACTIVE', 'SCHEDULED', 'COMPLETED', or 'ALL')"),
     search: Optional[str] = Query(None, description="Search keyword matching product title or description"),
     category_id: Optional[int] = Query(None, description="Filter by category taxonomy ID"),
     category_slug: Optional[str] = Query(None, description="Filter by category slug"),
@@ -142,6 +153,9 @@ def list_auctions(
             detail=f"Invalid sort parameter '{sort_by}'. Allowed options: {allowed_list}"
         )
 
+    _sync_scheduled_auction_lifecycle(db)
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+
     query = db.query(Auction).join(Product, Auction.product_id == Product.id)\
         .options(
             joinedload(Auction.product).joinedload(Product.seller),
@@ -150,16 +164,29 @@ def list_auctions(
         )
 
     # 2. Status filter
-    status_val = status_filter if isinstance(status_filter, str) else "ACTIVE"
-    if status_val and status_val.upper() != "ALL":
-        target_status = status_val.upper()
-        if target_status == "ACTIVE":
-            query = query.filter(Auction.status == AuctionStatus.ACTIVE)
-        else:
-            try:
-                query = query.filter(Auction.status == AuctionStatus(target_status))
-            except ValueError:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid status '{status_filter}'.")
+    status_val = status_filter if isinstance(status_filter, str) else "AVAILABLE"
+    target_status = status_val.upper().strip() if status_val else "AVAILABLE"
+
+    if target_status == "AVAILABLE":
+        # Show both active and upcoming auctions.
+        query = query.filter(
+            Auction.status.in_([AuctionStatus.ACTIVE, AuctionStatus.SCHEDULED]),
+            Auction.end_time > now_naive,
+        )
+
+    elif target_status != "ALL":
+        try:
+            status_enum = AuctionStatus(target_status)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status '{status_filter}'."
+            )
+        query = query.filter(Auction.status == status_enum)
+        if status_enum == AuctionStatus.ACTIVE:
+            query = query.filter(Auction.start_time <= now_naive, Auction.end_time > now_naive)
+        elif status_enum == AuctionStatus.SCHEDULED:
+            query = query.filter(Auction.start_time > now_naive, Auction.end_time > now_naive)
 
     # 3. Search filter
     if search and isinstance(search, str) and search.strip():
@@ -179,7 +206,8 @@ def list_auctions(
     # 6. Condition filter
     if condition and isinstance(condition, str) and condition.strip():
         cond_upper = condition.upper().strip()
-        query = query.filter(Product.condition_status == cond_upper)
+        if cond_upper != "ALL":
+            query = query.filter(Product.condition_status == cond_upper)
 
     # 7. Price filters (evaluated on effective price)
     effective_price_expr = func.coalesce(Auction.current_highest_bid, Auction.starting_price)
@@ -252,6 +280,8 @@ def get_auction_by_id(
     Includes product information, current highest bid, bid count, auction status, and end time.
     Masks the reserve price unless requested by the seller owner or an administrator.
     """
+    _sync_scheduled_auction_lifecycle(db)
+
     auction = db.query(Auction).options(
         joinedload(Auction.product).joinedload(Product.seller),
         joinedload(Auction.product).joinedload(Product.category),
@@ -318,13 +348,13 @@ def create_auction(
         start_time = now
 
     # Convert datetimes to naive UTC for consistent MySQL TIMESTAMP storage
-    start_time_naive = start_time.astimezone(timezone.utc).replace(tzinfo=None) if start_time.tzinfo else start_time
-    end_time_naive = auction_in.end_time.astimezone(timezone.utc).replace(tzinfo=None) if auction_in.end_time.tzinfo else auction_in.end_time
+    start_time_naive = _utc_naive(start_time)
+    end_time_naive = _utc_naive(auction_in.end_time)
 
     target_status = auction_in.status or "ACTIVE"
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
-    if start_time_naive > now_naive and target_status == "ACTIVE":
-        target_status = "SCHEDULED"
+    if target_status != "DRAFT":
+        target_status = "ACTIVE" if start_time_naive <= now_naive else "SCHEDULED"
 
     new_auction = Auction(
         product_id=product.id,
@@ -433,11 +463,27 @@ def update_auction(
     end_val = auction_in.end_time or auction.end_time
     start_comp = start_val.astimezone(timezone.utc).replace(tzinfo=None) if getattr(start_val, "tzinfo", None) else start_val
     end_comp = end_val.astimezone(timezone.utc).replace(tzinfo=None) if getattr(end_val, "tzinfo", None) else end_val
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
 
     if end_comp <= start_comp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Auction end time must be strictly greater than start time."
+        )
+    if auction_in.status == "SCHEDULED" and start_comp < now_naive:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A scheduled auction must have a start time in the present or future."
+        )
+    if auction_in.status == "ACTIVE" and start_comp > now_naive:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A future auction cannot be activated before its scheduled start time."
+        )
+    if auction.status == AuctionStatus.ACTIVE and start_comp > now_naive:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An active auction cannot be rescheduled to a future start time."
         )
 
     # 5. Validate price changes
@@ -629,4 +675,3 @@ def close_auction_endpoint(
         closing_user_id=current_user.id,
         force_close=force
     )
-
