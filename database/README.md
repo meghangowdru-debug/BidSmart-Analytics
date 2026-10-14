@@ -195,8 +195,8 @@ Real-time and asynchronous user notifications.
 *Indexes:*
 - `idx_notifications_user_read (user_id, is_read)`
 
-### 3.9 `transactions` (Simulated Demo Settlement)
-Non-monetary demo escrow settlements for completed auctions.
+### 3.9 `transactions` (Payment Settlement)
+Tracks the payment lifecycle for completed auctions. Auction closing creates a pending transaction; completion must only be recorded after payment verification.
 
 | Column | Data Type | Nullable | Key / Constraint | Description |
 | :--- | :--- | :---: | :--- | :--- |
@@ -206,10 +206,11 @@ Non-monetary demo escrow settlements for completed auctions.
 | `seller_id` | `INT` | No | `FK -> users(id)` | Listing seller. |
 | `amount` | `DECIMAL(12,2)` | No | `CHECK (amount >= 0.01)` | Final winning amount ($). |
 | `settlement_type` | `ENUM(...)` | No | `DEFAULT 'SIMULATED_DEMO'` | `'SIMULATED_DEMO'`. |
-| `payment_status` | `ENUM(...)` | No | `DEFAULT 'SETTLEMENT_PENDING_DEMO'` | `'SETTLEMENT_PENDING_DEMO'`, `'SETTLEMENT_COMPLETED_DEMO'`, `'CANCELLED'`. |
+| `payment_status` | `ENUM(...)` | No | `DEFAULT 'SETTLEMENT_PENDING_DEMO'` | `'SETTLEMENT_PENDING_DEMO'`, `'SETTLEMENT_COMPLETED_DEMO'`, `'SETTLEMENT_FAILED_DEMO'`, `'CANCELLED'`. |
 | `payment_reference` | `VARCHAR(64)` | No | `UNIQUE` | Demo reference hash (`TX-DEMO-...`). |
 | `created_at` | `TIMESTAMP` | No | `DEFAULT CURRENT_TIMESTAMP` | Invoice creation timestamp. |
-| `updated_at` | `TIMESTAMP` | No | `ON UPDATE CURRENT_TIMESTAMP` | Settlement status change timestamp. |
+| `updated_at` | `TIMESTAMP` | No | `ON UPDATE CURRENT_TIMESTAMP` | Record update timestamp; not an authoritative settlement time. |
+| `settled_at` | `TIMESTAMP` | Yes | `INDEX` | Set only when payment is verified as completed; historical rows remain `NULL`. |
 
 ### 3.10 `audit_logs`
 Immutable compliance and security audit trail.
@@ -276,32 +277,71 @@ The procedure selects active auctions where `end_time <= CURRENT_TIMESTAMP` with
 
 ---
 
-## 6. Seed Data & Local Development Quickstart
+## 6. Initial Setup & Seller-Managed Marketplace Data
 
 ### 6.1 Database Setup via CLI
 ```bash
 # 1. Connect to MySQL as root or privileged user
 mysql -u root -p
 
-# 2. Run initial schema migration
-mysql -u bidsmart_user -p<YOUR_DATABASE_PASSWORD> bidsmart_db < database/schema.sql
+# 2. For a new, empty database only, initialize the schema.
+#    schema.sql drops/recreates tables; never run it against an existing database.
+mysql -u bidsmart_user -p bidsmart_db < database/schema.sql
 
-# 3. Load comprehensive seed data (32 users, 40 auctions, ~400 bids)
-mysql -u bidsmart_user -p<YOUR_DATABASE_PASSWORD> bidsmart_db < database/seed_data.sql
+# 3. Load the category taxonomy only; this creates no marketplace listings.
+mysql -u bidsmart_user -p bidsmart_db < database/category_catalog.sql
 
-# 4. Verify seed data
-mysql -u bidsmart_user -p<YOUR_DATABASE_PASSWORD> bidsmart_db -e "SELECT * FROM vw_auction_kpi_summary;"
+# 4. Verify that setup contains categories but no marketplace listings.
+mysql -u bidsmart_user -p bidsmart_db -e "SELECT COUNT(*) FROM products; SELECT COUNT(*) FROM auctions;"
 ```
 
-### 6.2 Running Automated Verification Test Suite
-```bash
-python3 database/test_schema.py
-```
-This automated test suite verifies:
-- All 10 tables, views, and stored procedures exist.
-- Primary key, foreign key, and check constraint integrity.
-- Anti-self-bidding rejection.
-- Minimum increment enforcement.
-- Outbid conflict serialization.
-- High-concurrency pessimistic locking simulation.
-- Automated auction closure and winner resolution.
+Create user accounts through the application and have sellers add products
+through the seller dashboard. The category taxonomy is required by product
+creation, but is not displayed as a listing. Products and auctions then appear
+from the existing database-backed APIs. An empty marketplace remains empty
+until sellers create listings. Do not load `seed_data.sql` or run
+`generate_seed.py` in normal setup: both create predefined demo marketplace
+records. They are not part of application startup.
+
+For an existing database, apply `category_catalog.sql` only if its category
+taxonomy is missing. Do not apply it alongside the legacy demo seed, which
+already inserts those categories.
+
+For an existing database, take a backup and validate its current schema before
+making changes. Never run `schema.sql` against it. For a database created from
+`migrations/001_initial_schema.sql`, apply
+`migrations/002_transaction_payment_lifecycle.sql` once through the normal
+database change process before deploying code that uses the new column or status.
+Back up the database first: MySQL schema changes implicitly commit. Do not apply
+this migration to a database created from the current `schema.sql`, which already
+contains these changes. Existing transaction rows are not assigned a `settled_at`
+value because their actual payment-completion times are unknown.
+
+For the payment service, apply
+`migrations/003_razorpay_payment_attempts.sql` after migration 002. It creates
+provider-order mapping and webhook-event deduplication tables. A fresh database
+created from `schema.sql` already contains those tables. Configure Razorpay
+credentials through the deployment's secret manager only, with a test key ID
+beginning `rzp_test_`, `RAZORPAY_MODE=test`, and the configured marketplace
+currency `USD`. USD acceptance depends on the Razorpay account; the service
+fails closed if Razorpay does not create or return a matching USD order. One
+provider order is reused per transaction to avoid creating concurrent payable
+orders; verified payment IDs and signed webhook event IDs are uniquely stored.
+The backend configuration variable names are `RAZORPAY_KEY_ID`,
+`RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET`; configure all three with
+test-mode values in the backend secret manager, together with
+`RAZORPAY_MODE=test` and `RAZORPAY_CURRENCY=USD`. Configure the Razorpay test
+webhook to call `/api/v1/payments/webhook`. Never place the key secret or
+webhook secret in frontend configuration. The key ID is returned by the
+authenticated order endpoint for Checkout.
+
+### 6.2 Legacy Database Verification Script
+
+Do not run `database/test_schema.py` against a development or production
+database. It is a legacy integration script that assumes pre-existing demo
+records and performs database writes. It now fails closed unless
+`BIDSMART_SCHEMA_TEST_URL` points to loopback MySQL database
+`bidsmart_schema_test` and `BIDSMART_ALLOW_SCHEMA_TEST_WRITES` is set to
+`I_UNDERSTAND_THIS_IS_DISPOSABLE`. Run it only after explicitly provisioning
+that disposable database and its expected fixtures. It is excluded from the
+safe pytest commands in `backend/README.md`.

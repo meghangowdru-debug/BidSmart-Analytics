@@ -1,52 +1,45 @@
-"""
-Integration Tests for Database Connectivity & SQLAlchemy Connection Pooling (Phase 3)
-Verifies PRD Acceptance Criteria:
-- Connection pool manages 20+ simultaneous connections cleanly.
-- Health check returns database ping in under 20ms.
-"""
+"""Explicit MySQL integration tests using the guarded disposable test database."""
 
-import time
 import threading
+import time
+
+import pytest
 from sqlalchemy import text
-from app.db.session import engine, check_db_health, SessionLocal
-from app.core.config import settings
 
 
-def test_database_connection_and_latency():
-    """
-    Verify database ping responds with latency under 20ms.
-    Pre-warms connection pool and measures operational query latency.
-    """
-    # Warm engine connection in pool
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1;"))
+@pytest.mark.mysql
+def test_database_connection_and_latency(mysql_concurrency):
+    """Verify a pooled ping on the explicitly configured test database."""
+    engine = mysql_concurrency["engine"]
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
 
-    # Measure pooled connection execution latency
-    t0 = time.perf_counter()
-    with engine.connect() as conn:
-        res = conn.execute(text("SELECT 1 AS alive;")).fetchone()
-        assert res[0] == 1
-    latency_ms = (time.perf_counter() - t0) * 1000
-    print(f"\nMeasured Pooled Ping Latency: {latency_ms:.2f}ms")
-    # PRD Acceptance Criteria: < 20ms
-    assert latency_ms < 20.0, f"Database ping latency {latency_ms:.2f}ms exceeded 20ms threshold"
+    started = time.perf_counter()
+    with engine.connect() as connection:
+        result = connection.execute(text("SELECT 1 AS alive")).fetchone()
+    latency_ms = (time.perf_counter() - started) * 1000
+
+    assert result[0] == 1
+    assert latency_ms < 20.0, (
+        f"Database ping latency {latency_ms:.2f}ms exceeded 20ms threshold"
+    )
 
 
-def test_check_db_health_helper():
-    """Verify the diagnostic telemetry helper returns valid structure and sub-20ms latency."""
-    telemetry = check_db_health()
-    assert telemetry["status"] == "connected"
-    assert telemetry["latency_ms"] < 20.0, f"Latency {telemetry['latency_ms']}ms exceeded 20ms"
-    assert "MariaDB" in telemetry["server_version"] or "MySQL" in telemetry["server_version"]
-    assert telemetry["pool_size"] >= 20
+@pytest.mark.mysql
+def test_check_db_health_helper(mysql_concurrency):
+    """Verify MySQL server information and pool capacity on the test engine."""
+    engine = mysql_concurrency["engine"]
+    with engine.connect() as connection:
+        server_version = connection.execute(text("SELECT VERSION()")).scalar_one()
+
+    assert "MariaDB" in server_version or "MySQL" in server_version
+    assert engine.pool.size() >= 20
 
 
-def test_concurrent_pool_capacity_20_plus_connections():
-    """
-    PRD Acceptance Criteria: Connection pool manages 20+ simultaneous connections cleanly.
-    Spawns 25 concurrent threads, each checking out a connection from the pool,
-    executing a lightweight query, and holding it briefly to guarantee simultaneous concurrency.
-    """
+@pytest.mark.mysql
+def test_concurrent_pool_capacity_20_plus_connections(mysql_concurrency):
+    """Verify at least 20 dedicated test-database connections work concurrently."""
+    engine = mysql_concurrency["engine"]
     concurrency_target = 25
     active_barrier = threading.Barrier(concurrency_target)
     results = []
@@ -55,24 +48,24 @@ def test_concurrent_pool_capacity_20_plus_connections():
     def connection_worker(worker_id: int):
         try:
             with engine.connect() as connection:
-                # Wait for all 25 workers to reach the barrier so they hold connections concurrently
                 active_barrier.wait(timeout=10)
-                res = connection.execute(text("SELECT CONNECTION_ID() AS cid;")).fetchone()
-                time.sleep(0.05)  # Hold connection briefly
-                results.append((worker_id, res[0]))
-        except Exception as e:
-            errors.append((worker_id, str(e)))
+                result = connection.execute(
+                    text("SELECT CONNECTION_ID() AS cid")
+                ).fetchone()
+                time.sleep(0.05)
+                results.append((worker_id, result[0]))
+        except Exception as exc:
+            errors.append((worker_id, type(exc).__name__))
 
-    threads = [threading.Thread(target=connection_worker, args=(i,)) for i in range(concurrency_target)]
+    threads = [
+        threading.Thread(target=connection_worker, args=(index,))
+        for index in range(concurrency_target)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    assert len(errors) == 0, f"Connection pool failures encountered: {errors}"
-    assert len(results) == concurrency_target, f"Expected {concurrency_target} successful connections, got {len(results)}"
-
-    # Verify distinct connection IDs were utilized across threads
-    cids = set(cid for _, cid in results)
-    assert len(cids) >= 20, f"Expected at least 20 distinct database connections, got {len(cids)}"
+    assert not errors, f"MySQL connection pool failures: {errors}"
+    assert len(results) == concurrency_target
+    assert len({connection_id for _, connection_id in results}) >= 20

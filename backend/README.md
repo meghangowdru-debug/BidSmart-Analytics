@@ -268,30 +268,41 @@ finally:
 
 ---
 
-## 7. Verification & Automated Test Suites
+## 7. Production Configuration and Safe Test Commands
 
-### Backend Test Suite (`pytest backend/tests/ -v`)
-```
-backend/tests/test_auctions.py ............                     [ 15%]
-backend/tests/test_auth.py .......................               [ 43%]
-backend/tests/test_bids.py ..........                            [ 55%]
-backend/tests/test_closing_and_notifications.py ...........      [ 68%]
-backend/tests/test_config.py ....                                [ 73%]
-backend/tests/test_db_connection.py ...                          [ 77%]
-backend/tests/test_health.py ....                                [ 82%]
-backend/tests/test_models.py .....                               [ 88%]
-backend/tests/test_products.py ..........                        [100%]
+For Render, explicitly configure `ENVIRONMENT=production`, `DEBUG=False`, a
+strong `SECRET_KEY`, the production `MYSQL_SERVER`, `MYSQL_PORT`, `MYSQL_USER`,
+`MYSQL_PASSWORD`, and `MYSQL_DB`, and `BACKEND_CORS_ORIGINS` containing the
+deployed Vercel origin. Configuration validation rejects debug mode, placeholder
+credentials, and loopback database hosts in production. Set values through the
+Render environment/secret settings; never print or commit secret values.
 
-======================== 82 passed, 1 warning in 18.45s ========================
+Payments remain restricted to Razorpay TEST MODE. Configure
+`RAZORPAY_MODE=test`, `RAZORPAY_CURRENCY=USD`, `RAZORPAY_KEY_ID`,
+`RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` in the backend secret
+manager. Do not put secret values in frontend variables. Keep test mode enabled
+until a complete test-mode checkout and signed-webhook flow has been manually
+verified; this codebase does not enable live payment mode.
+
+Ordinary tests use the isolated SQLite fixture. From `backend\`, these targeted
+commands do not use the configured application database:
+
+```powershell
+python -m pytest -q -m "not mysql" tests\test_auctions.py tests\test_bids.py
+python -m pytest -q tests\test_payment_service.py tests\test_payments_api.py
+python -m pytest -q tests\test_analytics.py tests\test_transaction_payment_lifecycle.py
+python -m pytest -q -m "not mysql" tests\test_closing_and_notifications.py
 ```
 
-### Database Verification Suite (`python3 database/test_schema.py`)
-```
-===========================================================================
-VERIFICATION SUMMARY: 43 PASSED | 0 FAILED
-===========================================================================
-All database schema, integrity, concurrency, and analytical tests passed successfully!
-```
+Do not run `tests\test_db_connection.py` or any `mysql`-marked concurrency test
+as an ordinary test. They require a separately provisioned, disposable local
+database named `bidsmart_concurrency_test`, the stored procedure
+`sp_place_bid`, `BIDSMART_TEST_MYSQL_URL`, and the exact opt-in
+`BIDSMART_ALLOW_MYSQL_TEST_WRITES=I_UNDERSTAND_THIS_IS_DISPOSABLE`. Review the
+fixture safeguards and target identity before opting in; never use application
+database settings as the test target. The legacy database verification script
+is not part of the isolated test commands and must only be run against a
+separately prepared disposable database.
 
 ---
 
@@ -342,4 +353,3 @@ dist/assets/index-BLBgrIOY.css   50.06 kB
 dist/assets/index-IwMxPjj_.js   833.00 kB
 ✓ built in 961ms
 ```
-

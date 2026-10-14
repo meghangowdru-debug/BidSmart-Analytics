@@ -1,7 +1,13 @@
 import axios from 'axios';
 
-// Resolve base URL from environment or default to local FastAPI server
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+
+if (import.meta.env.PROD && !configuredBaseUrl) {
+  throw new Error('VITE_API_BASE_URL must be configured for production builds.');
+}
+
+// Local development may use the local FastAPI server; production must be explicit.
+const BASE_URL = configuredBaseUrl || 'http://localhost:8000';
 const API_PREFIX = '/api/v1';
 
 export const apiClient = axios.create({

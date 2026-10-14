@@ -12,7 +12,9 @@ from app.api.v1.endpoints import (
     products,
     auctions,
     bids,
-    notifications
+    notifications,
+    analytics,
+    payments,
 )
 
 api_router = APIRouter()
@@ -34,4 +36,5 @@ api_router.include_router(bids.router, tags=["Bidding Engine"])
 
 # Phase 7: In-App Notifications Router
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
-
+api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
+api_router.include_router(payments.router, prefix="/payments", tags=["Payments"])

@@ -22,13 +22,14 @@ import { StatusBadge } from '../components/common/Badge';
 import { CountdownTimer } from '../components/common/CountdownTimer';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { EmptyState } from '../components/common/EmptyState';
+import { WonAuctionsPanel } from '../components/dashboard/WonAuctionsPanel';
 
 export const BuyerDashboardPage = () => {
   const { user } = useAuth();
   const { watchlistIds, removeFromWatchlist } = useWatchlist();
   const { notifications } = useNotifications();
 
-  const [activeTab, setActiveTab] = useState('bids'); // 'bids' | 'watchlist' | 'alerts'
+  const [activeTab, setActiveTab] = useState('bids');
   const [bids, setBids] = useState([]);
   const [watchlistAuctions, setWatchlistAuctions] = useState([]);
   const [isLoadingBids, setIsLoadingBids] = useState(true);
@@ -161,7 +162,7 @@ export const BuyerDashboardPage = () => {
       {/* Tabs & Content */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         {/* Tab Navigation */}
-        <div className="border-b border-slate-200 flex space-x-6 px-6 pt-4">
+        <div className="flex space-x-6 overflow-x-auto border-b border-slate-200 px-6 pt-4">
           <button
             onClick={() => setActiveTab('bids')}
             className={`pb-3 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 ${
@@ -171,6 +172,17 @@ export const BuyerDashboardPage = () => {
             }`}
           >
             My Bidding Activity ({bids.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('won')}
+            className={`whitespace-nowrap pb-3 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 ${
+              activeTab === 'won'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Won Auctions
           </button>
 
           <button
@@ -274,6 +286,8 @@ export const BuyerDashboardPage = () => {
             )}
           </div>
         )}
+
+        {activeTab === 'won' && <WonAuctionsPanel />}
 
         {/* Tab 2: Watchlist */}
         {activeTab === 'watchlist' && (

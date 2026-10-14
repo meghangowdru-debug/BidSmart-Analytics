@@ -26,8 +26,11 @@ Production-grade Single Page Application (SPA) for the BidSmart Analytics AI-Pow
 | `/login` | `LoginPage` | Public | JWT login with username or email, form validation, error handling, quick demo account fillers (`Buyer`, `Seller`, `Admin`). |
 | `/register` | `RegisterPage` | Public | User registration with password complexity enforcement, role selector cards (`BUYER` vs `SELLER`; direct `ADMIN` self-assignment blocked). |
 | `/dashboard/buyer` | `BuyerDashboardPage` | `BUYER`, `ADMIN` | Personal bid history, active high bids, won lots, client-synced watchlist, notifications, Recharts activity trend. |
+| `/checkout/:auctionId` | `PaymentCheckoutPage` | `BUYER` | Checkout for a winning buyer using the backend-authoritative amount and TEST-mode Razorpay key. |
+| `/payments/history` | `PaymentHistoryPage` | `BUYER` | Buyer-scoped payment history; a payment is shown as verified only from backend state. |
 | `/dashboard/seller` | `SellerDashboardPage` | `SELLER`, `ADMIN` | Unmasked reserve price monitoring, product cataloging modal, auction launcher modal, single lot closing, batch sweep for seller's inventory, Recharts status breakdown. |
 | `/dashboard/admin` | `AdminDashboardPage` | `ADMIN` | Universal cross-seller sweep, administrative force close, auction cancellation, user RBAC role promotion and suspension, category oversight. |
+| `/admin/transactions` | `AdminTransactionsPage` | `ADMIN` | Paginated transaction monitoring through the administrator-only API. |
 | `/notifications` | `NotificationsPage` | Authenticated | In-app notification center, unread badge counters, filter by unread, mark-as-read single and mark-all-as-read, direct link navigation to auction lots. |
 | `/profile` | `ProfilePage` | Authenticated | Profile contact details editing, secure password changing with current password verification, account role & status overview. |
 | `*` | `NotFoundPage` | Public | 404 handler with quick navigation back to home or catalog. |
@@ -51,12 +54,21 @@ BidSmart uses REST polling for real-time synchronization without claiming persis
 
 ## 5. Environment Configuration
 
-The frontend connects to the FastAPI backend via Axios. By default, it targets `http://localhost:8000/api/v1`.
+The frontend connects to the FastAPI backend via Axios. Local development
+defaults to `http://localhost:8000/api/v1`.
 
-To customize the backend base URL, create a `.env` file in the `frontend` root:
+To customize the backend base URL locally, create a `.env` file in the
+`frontend` root:
 ```env
 VITE_API_BASE_URL=http://localhost:8000
 ```
+
+For Vercel deployments, set `VITE_API_BASE_URL` in the project's build
+environment to the Render backend origin (for example, `https://<backend-host>`,
+without `/api/v1`; the Axios client appends that path). A production build
+without this setting fails at startup instead of silently sending API calls to
+localhost. Keep Razorpay secret and webhook credentials exclusively in the
+backend secret manager; they must never use a `VITE_` variable.
 
 ---
 
@@ -74,8 +86,7 @@ npm run dev
 npm run build
 ```
 
-### Run Vitest Test Suite:
+### Run Vitest tests:
 ```bash
 npm test
 ```
-All 24 test suites pass successfully.

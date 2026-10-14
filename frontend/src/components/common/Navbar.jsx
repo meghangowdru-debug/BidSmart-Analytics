@@ -11,6 +11,8 @@ import {
   Store,
   ShieldCheck,
   Compass,
+  BarChart3,
+  CreditCard,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
@@ -80,6 +82,19 @@ export const Navbar = () => {
                     <span>Buyer Hub</span>
                   </Link>
                 )}
+                {isBuyer && (
+                  <Link
+                    to="/payments/history"
+                    className={`flex items-center space-x-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      isActive('/payments/history')
+                        ? 'bg-indigo-50 text-indigo-700'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span>Payments</span>
+                  </Link>
+                )}
 
                 {(isSeller || isAdmin) && (
                   <Link
@@ -108,6 +123,31 @@ export const Navbar = () => {
                     <span>Admin Center</span>
                   </Link>
                 )}
+                {isAdmin && (
+                  <Link
+                    to="/admin/transactions"
+                    className={`flex items-center space-x-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      isActive('/admin/transactions')
+                        ? 'bg-rose-50 text-rose-700'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span>Transactions</span>
+                  </Link>
+                )}
+
+                <Link
+                  to="/dashboard/analytics"
+                  className={`flex items-center space-x-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive('/dashboard/analytics')
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  <span>Analytics</span>
+                </Link>
               </>
             )}
           </nav>
@@ -224,6 +264,15 @@ export const Navbar = () => {
                   Buyer Hub
                 </Link>
               )}
+              {isBuyer && (
+                <Link
+                  to="/payments/history"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block px-3 py-2 rounded-lg text-base font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Payment History
+                </Link>
+              )}
 
               {(isSeller || isAdmin) && (
                 <Link
@@ -244,6 +293,23 @@ export const Navbar = () => {
                   Admin Center
                 </Link>
               )}
+              {isAdmin && (
+                <Link
+                  to="/admin/transactions"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block px-3 py-2 rounded-lg text-base font-medium text-rose-700 hover:bg-rose-50"
+                >
+                  Transactions
+                </Link>
+              )}
+
+              <Link
+                to="/dashboard/analytics"
+                onClick={() => setMobileMenuOpen(false)}
+                className="block px-3 py-2 rounded-lg text-base font-medium text-emerald-700 hover:bg-emerald-50"
+              >
+                Analytics
+              </Link>
 
               <Link
                 to="/profile"

@@ -184,7 +184,7 @@ def test_create_auction_validation_and_lifecycle(client, auth_tokens, db: Sessio
             "starting_price": 500.00,
             "reserve_price": 200.00,  # Below starting price!
             "minimum_increment": 10.00,
-            "start_time": now.isoformat(),
+            "start_time": (now + timedelta(minutes=1)).isoformat(),
             "end_time": (now + timedelta(days=3)).isoformat()
         }
         r_reserve = client.post("/api/v1/auctions", json=invalid_reserve_payload, headers={"Authorization": f"Bearer {auth_tokens['s1']}"})
@@ -196,7 +196,6 @@ def test_create_auction_validation_and_lifecycle(client, auth_tokens, db: Sessio
             "starting_price": 150.00,
             "reserve_price": 250.00,
             "minimum_increment": 10.00,
-            "start_time": now.isoformat(),
             "end_time": (now + timedelta(days=3)).isoformat(),
             "status": "ACTIVE"
         }
@@ -248,7 +247,7 @@ def test_seller_cannot_create_auction_for_another_sellers_product(client, auth_t
             "product_id": product_id,
             "starting_price": 1000.00,
             "minimum_increment": 50.00,
-            "start_time": now.isoformat(),
+
             "end_time": (now + timedelta(days=2)).isoformat()
         }
 
@@ -352,7 +351,6 @@ def test_auction_cancellation_rules(client, auth_tokens, db: Session):
             "product_id": product_id,
             "starting_price": 50.00,
             "minimum_increment": 5.00,
-            "start_time": now.isoformat(),
             "end_time": (now + timedelta(days=2)).isoformat(),
             "status": "ACTIVE"
         },

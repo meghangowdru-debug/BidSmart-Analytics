@@ -11,6 +11,7 @@ Features:
 
 from datetime import datetime, timezone
 from decimal import Decimal
+import logging
 from typing import Optional, List, Dict, Any
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
@@ -24,6 +25,8 @@ from app.models.transaction import Transaction, SettlementType, PaymentStatus
 from app.models.notification import Notification, NotificationType
 from app.models.audit_log import AuditLog
 from app.schemas.settlement import AuctionCloseResult, BatchCloseResponse
+
+logger = logging.getLogger("bidsmart_api.auction_closing")
 
 
 def close_single_auction(
@@ -412,9 +415,14 @@ def close_all_expired_auctions(
     if closing_user and closing_user.role and closing_user.role.name == "SELLER":
         effective_seller_id = closing_user.id
 
-    # Find candidate expired active auction IDs
+    # Find candidate expired auction IDs. SCHEDULED listings can expire without
+    # ever being viewed after their start time, so the closing service settles
+    # them through the same audit/notification path as ACTIVE listings.
     query = db.query(Auction.id).join(Auction.product)\
-        .filter(Auction.status == AuctionStatus.ACTIVE, Auction.end_time <= now_naive)
+        .filter(
+            Auction.status.in_([AuctionStatus.ACTIVE, AuctionStatus.SCHEDULED]),
+            Auction.end_time <= now_naive
+        )
 
     if effective_seller_id is not None:
         query = query.filter(Product.seller_id == effective_seller_id)
@@ -441,6 +449,7 @@ def close_all_expired_auctions(
                 already_closed_count += 1
         except Exception:
             db.rollback()
+            logger.exception("Failed to close expired auction id=%s during batch close", a_id)
 
     return BatchCloseResponse(
         processed_count=len(results),

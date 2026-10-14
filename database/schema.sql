@@ -9,6 +9,8 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS payment_webhook_events;
+DROP TABLE IF EXISTS payment_attempts;
 DROP TABLE IF EXISTS transactions;
 DROP TABLE IF EXISTS notifications;
 DROP TABLE IF EXISTS watchlist;
@@ -189,8 +191,8 @@ CREATE TABLE notifications (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
--- 9. TRANSACTIONS (SIMULATED DEMO SETTLEMENT) TABLE
--- Purpose: Non-monetary demo invoice and escrow settlement tracking.
+-- 9. TRANSACTIONS (PAYMENT SETTLEMENT) TABLE
+-- Purpose: Payment lifecycle tracking; settled_at is set only after verified payment.
 -- -----------------------------------------------------------------------------
 CREATE TABLE transactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -199,11 +201,12 @@ CREATE TABLE transactions (
     seller_id INT NOT NULL,
     amount DECIMAL(12, 2) NOT NULL,
     settlement_type ENUM('SIMULATED_DEMO') NOT NULL DEFAULT 'SIMULATED_DEMO',
-    payment_status ENUM('SETTLEMENT_PENDING_DEMO', 'SETTLEMENT_COMPLETED_DEMO', 'CANCELLED') 
+    payment_status ENUM('SETTLEMENT_PENDING_DEMO', 'SETTLEMENT_COMPLETED_DEMO', 'SETTLEMENT_FAILED_DEMO', 'CANCELLED')
         NOT NULL DEFAULT 'SETTLEMENT_PENDING_DEMO',
     payment_reference VARCHAR(64) NOT NULL UNIQUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    settled_at TIMESTAMP NULL DEFAULT NULL,
     CONSTRAINT fk_transactions_auction FOREIGN KEY (auction_id) 
         REFERENCES auctions(id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT fk_transactions_buyer FOREIGN KEY (buyer_id) 
@@ -211,7 +214,39 @@ CREATE TABLE transactions (
     CONSTRAINT fk_transactions_seller FOREIGN KEY (seller_id) 
         REFERENCES users(id) ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT chk_transaction_amount CHECK (amount >= 0.01),
-    INDEX idx_transactions_status (payment_status)
+    INDEX idx_transactions_status (payment_status),
+    INDEX idx_transactions_settled_at (settled_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- 9.1 RAZORPAY PAYMENT ATTEMPTS
+-- Purpose: Durable idempotency and provider ID mapping; no client-supplied amounts.
+-- -----------------------------------------------------------------------------
+CREATE TABLE payment_attempts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    transaction_id INT NOT NULL UNIQUE,
+    provider_order_id VARCHAR(64) NOT NULL UNIQUE,
+    provider_payment_id VARCHAR(64) NULL UNIQUE,
+    amount_minor BIGINT NOT NULL,
+    currency CHAR(3) NOT NULL,
+    status ENUM('ORDER_CREATED', 'PAYMENT_FAILED', 'PAYMENT_COMPLETED')
+        NOT NULL DEFAULT 'ORDER_CREATED',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_payment_attempts_transaction FOREIGN KEY (transaction_id)
+        REFERENCES transactions(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT chk_payment_attempt_amount CHECK (amount_minor >= 1),
+    INDEX idx_payment_attempts_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- 9.2 PROCESSED PAYMENT WEBHOOK EVENTS
+-- Purpose: Deduplicate signed provider events without retaining payloads.
+-- -----------------------------------------------------------------------------
+CREATE TABLE payment_webhook_events (
+    event_id VARCHAR(64) PRIMARY KEY,
+    event_type VARCHAR(64) NOT NULL,
+    received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------

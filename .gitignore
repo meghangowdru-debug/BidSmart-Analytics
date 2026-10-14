@@ -34,3 +34,6 @@ build/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Local database SSL certificates
+backend/certs/

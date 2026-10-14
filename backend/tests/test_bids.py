@@ -85,7 +85,6 @@ def test_first_bid_and_subsequent_bid_lifecycle(client, test_users, db: Session)
             "product_id": product_id,
             "starting_price": 500.00,
             "minimum_increment": 25.00,
-            "start_time": (now - timedelta(hours=1)).isoformat(),
             "end_time": (now + timedelta(hours=5)).isoformat(),
             "status": "ACTIVE"
         },
@@ -291,43 +290,52 @@ def test_cannot_bid_on_not_started_auction(client, test_users, db: Session):
 # 4. CONCURRENCY & PESSIMISTIC LOCKING SIMULATION
 # -----------------------------------------------------------------------------
 
-def test_concurrent_bids_serialized_atomically(client, test_users, db: Session):
+@pytest.mark.mysql
+def test_concurrent_bids_serialized_atomically(mysql_concurrency):
     """
     Simulate 5 simultaneous concurrent bids on the same auction with the SAME bid amount.
     Because of pessimistic row locking, exactly ONE must be accepted (201 Created),
     and the other 4 must be rejected with outbid conflict (400 Bad Request).
     Zero unhandled exceptions or corrupt states.
     """
+    client = mysql_concurrency["client"]
+    db = mysql_concurrency["db"]
+    test_users = mysql_concurrency["tokens"]
+
     # 1. Create product and active auction
-    prod = client.post(
-        "/api/v1/products",
-        json={
-            "title": "Concurrency Stress Test Item",
-            "description": "Simulated multi-threaded race condition testing.",
-            "condition_status": "USED",
-            "image_url": "https://images.unsplash.com/race.jpg",
-            "category_id": 1
-        },
-        headers={"Authorization": f"Bearer {test_users['s1']}"}
-    ).json()
-    product_id = prod["id"]
-
-    now = datetime.now(timezone.utc)
-    auc = client.post(
-        "/api/v1/auctions",
-        json={
-            "product_id": product_id,
-            "starting_price": 100.00,
-            "minimum_increment": 10.00,
-            "start_time": now.isoformat(),
-            "end_time": (now + timedelta(hours=3)).isoformat(),
-            "status": "ACTIVE"
-        },
-        headers={"Authorization": f"Bearer {test_users['s1']}"}
-    ).json()
-    auction_id = auc["id"]
-
+    product_id = None
+    auction_id = None
     try:
+        product_response = client.post(
+            "/api/v1/products",
+            json={
+                "title": "Concurrency Stress Test Item",
+                "description": "Simulated multi-threaded race condition testing.",
+                "condition_status": "USED",
+                "image_url": "https://images.unsplash.com/race.jpg",
+                "category_id": mysql_concurrency["category_id"]
+            },
+            headers={"Authorization": f"Bearer {test_users['s1']}"}
+        )
+        assert product_response.status_code == status.HTTP_201_CREATED
+        product_id = product_response.json()["id"]
+
+        now = datetime.now(timezone.utc)
+        auction_response = client.post(
+            "/api/v1/auctions",
+            json={
+                "product_id": product_id,
+                "starting_price": 100.00,
+                "minimum_increment": 10.00,
+                "start_time": now.isoformat(),
+                "end_time": (now + timedelta(hours=3)).isoformat(),
+                "status": "ACTIVE"
+            },
+            headers={"Authorization": f"Bearer {test_users['s1']}"}
+        )
+        assert auction_response.status_code == status.HTTP_201_CREATED
+        auction_id = auction_response.json()["id"]
+
         results = []
 
         def place_concurrent_bid(token, amount):
@@ -358,10 +366,15 @@ def test_concurrent_bids_serialized_atomically(client, test_users, db: Session):
         assert bids_in_db[0].is_winning_bid is True
 
     finally:
-        db.query(AuditLog).filter(AuditLog.entity_id == auction_id, AuditLog.entity_type == "AUCTION").delete()
-        db.query(Bid).filter(Bid.auction_id == auction_id).delete()
-        db.query(Auction).filter(Auction.id == auction_id).delete()
-        db.query(Product).filter(Product.id == product_id).delete()
+        if auction_id is not None:
+            db.query(AuditLog).filter(
+                AuditLog.entity_id == auction_id,
+                AuditLog.entity_type == "AUCTION",
+            ).delete()
+            db.query(Bid).filter(Bid.auction_id == auction_id).delete()
+            db.query(Auction).filter(Auction.id == auction_id).delete()
+        if product_id is not None:
+            db.query(Product).filter(Product.id == product_id).delete()
         db.commit()
 
 

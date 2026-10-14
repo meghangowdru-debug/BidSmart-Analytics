@@ -14,25 +14,66 @@ Tests:
 """
 
 import sys
+import os
 import threading
 import time
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 import pymysql
+from sqlalchemy.engine.url import make_url
 
-# Database connection parameters
-DB_CONFIG = {
-    'host': '127.0.0.1',
-    'user': 'bidsmart_user',
-    'password': 'bidsmart_pass123',
-    'database': 'bidsmart_db',
-    'charset': 'utf8mb4',
-    'cursorclass': pymysql.cursors.DictCursor,
-    'autocommit': True
-}
+SCHEMA_TEST_DATABASE = "bidsmart_schema_test"
+SCHEMA_TEST_WRITE_OPT_IN = "I_UNDERSTAND_THIS_IS_DISPOSABLE"
+
+
+def _schema_test_db_config():
+    """Require an explicitly opted-in, loopback-only disposable MySQL database."""
+    database_url = os.environ.get("BIDSMART_SCHEMA_TEST_URL")
+    write_opt_in = os.environ.get("BIDSMART_ALLOW_SCHEMA_TEST_WRITES")
+    if not database_url or write_opt_in != SCHEMA_TEST_WRITE_OPT_IN:
+        raise RuntimeError(
+            "The database verification suite requires BIDSMART_SCHEMA_TEST_URL "
+            "and BIDSMART_ALLOW_SCHEMA_TEST_WRITES with the disposable-DB opt-in."
+        )
+
+    try:
+        parsed_url = make_url(database_url)
+    except Exception as exc:
+        raise RuntimeError("The dedicated schema-test database URL is invalid.") from exc
+
+    host = (parsed_url.host or "").strip().lower()
+    if (
+        parsed_url.drivername != "mysql+pymysql"
+        or host not in {"localhost", "127.0.0.1", "::1"}
+        or parsed_url.database != SCHEMA_TEST_DATABASE
+        or not parsed_url.username
+        or not parsed_url.password
+    ):
+        raise RuntimeError(
+            "The database verification suite accepts only a loopback MySQL "
+            f"database named {SCHEMA_TEST_DATABASE}."
+        )
+
+    return {
+        "host": parsed_url.host,
+        "port": parsed_url.port or 3306,
+        "user": parsed_url.username,
+        "password": parsed_url.password,
+        "database": parsed_url.database,
+        "charset": "utf8mb4",
+        "cursorclass": pymysql.cursors.DictCursor,
+        "autocommit": True,
+    }
 
 def get_connection():
-    return pymysql.connect(**DB_CONFIG)
+    connection = pymysql.connect(**_schema_test_db_config())
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT DATABASE() AS database_name")
+        actual_database = cursor.fetchone()["database_name"]
+    if actual_database != SCHEMA_TEST_DATABASE:
+        connection.close()
+        raise RuntimeError("Connected schema-test database identity did not match.")
+    return connection
 
 passed_tests = []
 failed_tests = []
@@ -86,7 +127,10 @@ def run_tests():
         record_test(f"View Exists: {vw}", vw in existing_views)
 
     required_procs = ['sp_place_bid', 'sp_close_expired_auctions']
-    cursor.execute("SHOW PROCEDURE STATUS WHERE Db = 'bidsmart_db';")
+    cursor.execute(
+        "SHOW PROCEDURE STATUS WHERE Db = %s;",
+        (SCHEMA_TEST_DATABASE,),
+    )
     existing_procs = [row['Name'] for row in cursor.fetchall()]
     for prc in required_procs:
         record_test(f"Procedure Exists: {prc}", prc in existing_procs)

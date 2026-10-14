@@ -18,6 +18,10 @@ import { SellerDashboardPage } from './pages/SellerDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { AnalyticsPage } from './pages/AnalyticsPage';
+import { PaymentCheckoutPage } from './pages/PaymentCheckoutPage';
+import { PaymentHistoryPage } from './pages/PaymentHistoryPage';
+import { AdminTransactionsPage } from './pages/AdminTransactionsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 export function App() {
@@ -36,6 +40,31 @@ export function App() {
                   <Route path="/auctions/:id" element={<AuctionDetailPage />} />
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/register" element={<RegisterPage />} />
+
+                  <Route
+                    path="/checkout/:auctionId"
+                    element={
+                      <ProtectedRoute allowedRoles={['BUYER']}>
+                        <PaymentCheckoutPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/payments/history"
+                    element={
+                      <ProtectedRoute allowedRoles={['BUYER']}>
+                        <PaymentHistoryPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/transactions"
+                    element={
+                      <ProtectedRoute allowedRoles={['ADMIN']}>
+                        <AdminTransactionsPage />
+                      </ProtectedRoute>
+                    }
+                  />
 
                   {/* Protected Role-Gated Dashboards */}
                   <Route
@@ -61,6 +90,15 @@ export function App() {
                     element={
                       <ProtectedRoute allowedRoles={['ADMIN']}>
                         <AdminDashboardPage />
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  <Route
+                    path="/dashboard/analytics"
+                    element={
+                      <ProtectedRoute allowedRoles={['BUYER', 'SELLER', 'ADMIN']}>
+                        <AnalyticsPage />
                       </ProtectedRoute>
                     }
                   />

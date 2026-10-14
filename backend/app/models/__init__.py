@@ -12,7 +12,14 @@ from app.models.auction import Auction, AuctionStatus
 from app.models.bid import Bid
 from app.models.watchlist import Watchlist
 from app.models.notification import Notification, NotificationType
-from app.models.transaction import Transaction, SettlementType, PaymentStatus
+from app.models.transaction import (
+    Transaction,
+    SettlementType,
+    PaymentStatus,
+    PaymentAttempt,
+    PaymentAttemptStatus,
+    PaymentWebhookEvent,
+)
 from app.models.audit_log import AuditLog
 
 __all__ = [
@@ -32,5 +39,8 @@ __all__ = [
     "Transaction",
     "SettlementType",
     "PaymentStatus",
+    "PaymentAttempt",
+    "PaymentAttemptStatus",
+    "PaymentWebhookEvent",
     "AuditLog"
 ]

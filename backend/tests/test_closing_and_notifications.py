@@ -26,7 +26,6 @@ from app.models.bid import Bid
 from app.models.transaction import Transaction, PaymentStatus
 from app.models.notification import Notification
 from app.models.audit_log import AuditLog
-from app.db.session import SessionLocal
 from app.services.auction_closing import close_single_auction
 
 
@@ -80,13 +79,19 @@ def test_zero_bid_auction_closing_unsold(client, test_users, db: Session):
             "product_id": prod["id"],
             "starting_price": 300.00,
             "minimum_increment": 20.00,
-            "start_time": (now - timedelta(hours=3)).isoformat(),
-            "end_time": (now - timedelta(minutes=10)).isoformat(),  # Already expired
+            "end_time": (now + timedelta(hours=1)).isoformat(),
             "status": "ACTIVE"
         },
         headers={"Authorization": f"Bearer {test_users['s1']}"}
     ).json()
     auction_id = auc["id"]
+    db.query(Auction).filter(Auction.id == auction_id).update(
+        {
+            Auction.start_time: now - timedelta(hours=3),
+            Auction.end_time: now - timedelta(minutes=10),
+        }
+    )
+    db.commit()
 
     # 2. Seller closes auction
     close_res = client.post(
@@ -179,7 +184,6 @@ def test_reserve_met_auction_closing_completed(client, test_users, db: Session):
             "starting_price": 100.00,
             "reserve_price": 200.00,
             "minimum_increment": 10.00,
-            "start_time": (now - timedelta(hours=2)).isoformat(),
             "end_time": (now + timedelta(hours=2)).isoformat(),
             "status": "ACTIVE"
         },
@@ -206,6 +210,7 @@ def test_reserve_met_auction_closing_completed(client, test_users, db: Session):
 
     # 4. Fast-forward auction end_time to the past
     db_auc = db.query(Auction).filter(Auction.id == auction_id).first()
+    db_auc.start_time = now - timedelta(hours=3)
     db_auc.end_time = now - timedelta(minutes=5)
     db.commit()
 
@@ -320,7 +325,6 @@ def test_reserve_not_met_auction_closing(client, test_users, db: Session):
             "starting_price": 200.00,
             "reserve_price": 1000.00,
             "minimum_increment": 50.00,
-            "start_time": (now - timedelta(hours=2)).isoformat(),
             "end_time": (now + timedelta(hours=2)).isoformat(),
             "status": "ACTIVE"
         },
@@ -338,6 +342,7 @@ def test_reserve_not_met_auction_closing(client, test_users, db: Session):
 
     # 3. Fast-forward auction to expired
     db_auc = db.query(Auction).filter(Auction.id == auction_id).first()
+    db_auc.start_time = now - timedelta(hours=3)
     db_auc.end_time = now - timedelta(minutes=5)
     db.commit()
 
@@ -409,7 +414,6 @@ def test_premature_closing_and_admin_force(client, test_users, db: Session):
             "product_id": prod["id"],
             "starting_price": 50.00,
             "minimum_increment": 5.00,
-            "start_time": (now - timedelta(hours=1)).isoformat(),
             "end_time": (now + timedelta(hours=4)).isoformat(),
             "status": "ACTIVE"
         },
@@ -465,9 +469,16 @@ def test_batch_close_expired_auctions(client, test_users, db: Session):
     ).json()
     auc_a = client.post(
         "/api/v1/auctions",
-        json={"product_id": prod_a["id"], "starting_price": 50.00, "start_time": (now - timedelta(hours=3)).isoformat(), "end_time": (now - timedelta(minutes=10)).isoformat(), "status": "ACTIVE"},
+        json={"product_id": prod_a["id"], "starting_price": 50.00, "end_time": (now + timedelta(hours=1)).isoformat(), "status": "ACTIVE"},
         headers={"Authorization": f"Bearer {test_users['s1']}"}
     ).json()["id"]
+    db.query(Auction).filter(Auction.id == auc_a).update(
+        {
+            Auction.start_time: now - timedelta(hours=3),
+            Auction.end_time: now - timedelta(minutes=10),
+        }
+    )
+    db.commit()
 
     # 2. Create Auction B (Expired, Met Reserve -> COMPLETED)
     prod_b = client.post(
@@ -477,13 +488,14 @@ def test_batch_close_expired_auctions(client, test_users, db: Session):
     ).json()
     auc_b = client.post(
         "/api/v1/auctions",
-        json={"product_id": prod_b["id"], "starting_price": 50.00, "reserve_price": 80.00, "start_time": (now - timedelta(hours=3)).isoformat(), "end_time": (now + timedelta(hours=1)).isoformat(), "status": "ACTIVE"},
+        json={"product_id": prod_b["id"], "starting_price": 50.00, "reserve_price": 80.00, "end_time": (now + timedelta(hours=1)).isoformat(), "status": "ACTIVE"},
         headers={"Authorization": f"Bearer {test_users['s1']}"}
     ).json()["id"]
     # Place bid
     client.post(f"/api/v1/auctions/{auc_b}/bids", json={"bid_amount": 100.00}, headers={"Authorization": f"Bearer {test_users['b1']}"})
     # Fast forward to past
     db_auc_b = db.query(Auction).filter(Auction.id == auc_b).first()
+    db_auc_b.start_time = now - timedelta(hours=3)
     db_auc_b.end_time = now - timedelta(minutes=5)
     db.commit()
 
@@ -495,7 +507,7 @@ def test_batch_close_expired_auctions(client, test_users, db: Session):
     ).json()
     auc_c = client.post(
         "/api/v1/auctions",
-        json={"product_id": prod_c["id"], "starting_price": 50.00, "start_time": (now - timedelta(hours=1)).isoformat(), "end_time": (now + timedelta(hours=5)).isoformat(), "status": "ACTIVE"},
+        json={"product_id": prod_c["id"], "starting_price": 50.00, "end_time": (now + timedelta(hours=5)).isoformat(), "status": "ACTIVE"},
         headers={"Authorization": f"Bearer {test_users['s1']}"}
     ).json()["id"]
 
@@ -519,7 +531,8 @@ def test_batch_close_expired_auctions(client, test_users, db: Session):
 # 6. CONCURRENT CLOSING PESSIMISTIC ROW-LOCKING
 # -----------------------------------------------------------------------------
 
-def test_concurrent_auction_closing(client, test_users, db: Session):
+@pytest.mark.mysql
+def test_concurrent_auction_closing(mysql_concurrency):
     """
     Test concurrency safety:
     Spawn multiple threads that simultaneously attempt to close the same expired auction.
@@ -527,10 +540,13 @@ def test_concurrent_auction_closing(client, test_users, db: Session):
     performs the state transition and creates the transaction.
     All subsequent threads detect `already_closed == True`.
     """
+    client = mysql_concurrency["client"]
+    db = mysql_concurrency["db"]
+    test_users = mysql_concurrency["tokens"]
     now = datetime.now(timezone.utc)
     prod = client.post(
         "/api/v1/products",
-        json={"title": "Concurrent Closing Test Item", "description": "Pessimistic lock race test", "condition_status": "NEW", "image_url": "https://images.unsplash.com/item_concurrent.jpg", "category_id": 3},
+        json={"title": "Concurrent Closing Test Item", "description": "Pessimistic lock race test", "condition_status": "NEW", "image_url": "https://example.test/item_concurrent.jpg", "category_id": mysql_concurrency["category_id"]},
         headers={"Authorization": f"Bearer {test_users['s1']}"}
     ).json()
 
@@ -551,9 +567,14 @@ def test_concurrent_auction_closing(client, test_users, db: Session):
     results = []
 
     def run_close():
-        thread_db = SessionLocal()
+        thread_db = mysql_concurrency["session_factory"]()
         try:
-            res = close_single_auction(db=thread_db, auction_id=auc, closing_user_id=1, force_close=False)
+            res = close_single_auction(
+                db=thread_db,
+                auction_id=auc,
+                closing_user_id=mysql_concurrency["seed_ids"]["seller_id"],
+                force_close=False,
+            )
             results.append(res)
         finally:
             thread_db.close()
@@ -594,7 +615,7 @@ def test_outbid_notification_dispatch(client, test_users, db: Session):
 
     auc = client.post(
         "/api/v1/auctions",
-        json={"product_id": prod["id"], "starting_price": 100.00, "minimum_increment": 10.00, "start_time": (now - timedelta(hours=1)).isoformat(), "end_time": (now + timedelta(hours=2)).isoformat(), "status": "ACTIVE"},
+        json={"product_id": prod["id"], "starting_price": 100.00, "minimum_increment": 10.00, "end_time": (now + timedelta(hours=2)).isoformat(), "status": "ACTIVE"},
         headers={"Authorization": f"Bearer {test_users['s1']}"}
     ).json()["id"]
 
@@ -737,9 +758,16 @@ def test_closing_rbac_and_ownership(client, test_users, db: Session):
 
     auc = client.post(
         "/api/v1/auctions",
-        json={"product_id": prod["id"], "starting_price": 50.00, "start_time": (now - timedelta(hours=2)).isoformat(), "end_time": (now - timedelta(minutes=5)).isoformat(), "status": "ACTIVE"},
+        json={"product_id": prod["id"], "starting_price": 50.00, "end_time": (now + timedelta(hours=1)).isoformat(), "status": "ACTIVE"},
         headers={"Authorization": f"Bearer {test_users['s1']}"}
     ).json()["id"]
+    db.query(Auction).filter(Auction.id == auc).update(
+        {
+            Auction.start_time: now - timedelta(hours=3),
+            Auction.end_time: now - timedelta(minutes=5),
+        }
+    )
+    db.commit()
 
     # 1. Unauthenticated -> 401
     res_unauth = client.post(f"/api/v1/auctions/{auc}/close")
@@ -791,9 +819,16 @@ def test_seller_batch_close_strictly_scoped_to_own_inventory(client, test_users,
     ).json()
     auc1 = client.post(
         "/api/v1/auctions",
-        json={"product_id": p1["id"], "starting_price": 50.00, "start_time": (now - timedelta(hours=3)).isoformat(), "end_time": (now - timedelta(minutes=10)).isoformat(), "status": "ACTIVE"},
+        json={"product_id": p1["id"], "starting_price": 50.00, "end_time": (now + timedelta(hours=1)).isoformat(), "status": "ACTIVE"},
         headers={"Authorization": f"Bearer {test_users['s1']}"}
     ).json()["id"]
+    db.query(Auction).filter(Auction.id == auc1).update(
+        {
+            Auction.start_time: now - timedelta(hours=3),
+            Auction.end_time: now - timedelta(minutes=10),
+        }
+    )
+    db.commit()
 
     # 2. Seller 2 (apex_electronics, id 4) creates an expired auction
     p2 = client.post(
@@ -803,9 +838,16 @@ def test_seller_batch_close_strictly_scoped_to_own_inventory(client, test_users,
     ).json()
     auc2 = client.post(
         "/api/v1/auctions",
-        json={"product_id": p2["id"], "starting_price": 100.00, "start_time": (now - timedelta(hours=3)).isoformat(), "end_time": (now - timedelta(minutes=10)).isoformat(), "status": "ACTIVE"},
+        json={"product_id": p2["id"], "starting_price": 100.00, "end_time": (now + timedelta(hours=1)).isoformat(), "status": "ACTIVE"},
         headers={"Authorization": f"Bearer {test_users['s2']}"}
     ).json()["id"]
+    db.query(Auction).filter(Auction.id == auc2).update(
+        {
+            Auction.start_time: now - timedelta(hours=3),
+            Auction.end_time: now - timedelta(minutes=10),
+        }
+    )
+    db.commit()
 
     # 3. Seller 1 attempts to pass ?seller_id=4 -> 403 Forbidden
     cross_res = client.post(
@@ -845,6 +887,7 @@ def test_seller_batch_close_strictly_scoped_to_own_inventory(client, test_users,
 
     db.commit()  # Reset transaction snapshot to read latest committed data
     db_auc2 = db.query(Auction).filter(Auction.id == auc2).first()
+    db.refresh(db_auc2)
     assert db_auc2.status == AuctionStatus.UNSOLD
 
 
@@ -877,7 +920,6 @@ def test_reserve_price_privacy_unauthorized_masking(client, test_users, db: Sess
             "starting_price": 200.00,
             "reserve_price": 750.00,
             "minimum_increment": 25.00,
-            "start_time": (now - timedelta(hours=2)).isoformat(),
             "end_time": (now + timedelta(hours=2)).isoformat(),
             "status": "ACTIVE"
         },
@@ -915,6 +957,7 @@ def test_reserve_price_privacy_unauthorized_masking(client, test_users, db: Sess
 
     # --- Close Auction and Verify Notifications Privacy ---
     db_auc = db.query(Auction).filter(Auction.id == auc).first()
+    db_auc.start_time = now - timedelta(hours=3)
     db_auc.end_time = now - timedelta(minutes=5)
     db.commit()
 
@@ -924,13 +967,11 @@ def test_reserve_price_privacy_unauthorized_masking(client, test_users, db: Sess
     assert close_res.json()["reserve_met"] is False
 
     # Check that close_single_auction called without privileged user masks reserve_price
-    thread_db = SessionLocal()
-    try:
-        unprivileged_res = close_single_auction(db=thread_db, auction_id=auc, closing_user_id=None)
-        assert unprivileged_res.reserve_price is None
-        assert unprivileged_res.reserve_met is None
-    finally:
-        thread_db.close()
+    unprivileged_res = close_single_auction(
+        db=db, auction_id=auc, closing_user_id=None
+    )
+    assert unprivileged_res.reserve_price is None
+    assert unprivileged_res.reserve_met is None
 
     # Check Bidder notification: MUST NOT contain "750" or "$750"
     bidder_notif = db.query(Notification).filter(
@@ -951,4 +992,3 @@ def test_reserve_price_privacy_unauthorized_masking(client, test_users, db: Sess
 
     assert seller_notif is not None
     assert "$750.00" in seller_notif.message
-

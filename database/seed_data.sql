@@ -5,7 +5,7 @@
 -- Total Auctions: 40 | Total Bids: ~350-410 | Users: 32
 -- =============================================================================
 
-USE bidsmart_db;
+USE defaultdb;
 
 SET FOREIGN_KEY_CHECKS = 0;
 

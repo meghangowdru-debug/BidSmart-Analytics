@@ -37,8 +37,9 @@ CREATE DATABASE IF NOT EXISTS bidsmart_db
   CHARACTER SET utf8mb4 
   COLLATE utf8mb4_unicode_ci;
 
-CREATE USER IF NOT EXISTS 'bidsmart_user'@'localhost' IDENTIFIED BY 'bidsmart_pass123';
-CREATE USER IF NOT EXISTS 'bidsmart_user'@'127.0.0.1' IDENTIFIED BY 'bidsmart_pass123';
+-- Replace <YOUR_DATABASE_PASSWORD> with a unique local password before running.
+CREATE USER IF NOT EXISTS 'bidsmart_user'@'localhost' IDENTIFIED BY '<YOUR_DATABASE_PASSWORD>';
+CREATE USER IF NOT EXISTS 'bidsmart_user'@'127.0.0.1' IDENTIFIED BY '<YOUR_DATABASE_PASSWORD>';
 
 GRANT ALL PRIVILEGES ON bidsmart_db.* TO 'bidsmart_user'@'localhost';
 GRANT ALL PRIVILEGES ON bidsmart_db.* TO 'bidsmart_user'@'127.0.0.1';
@@ -46,21 +47,27 @@ FLUSH PRIVILEGES;
 EXIT;
 ```
 
-### Step 2.3: Execute Schema and Seed Data
+### Step 2.3: Initialize a Fresh Database
 Navigate to your project root in PowerShell:
 ```powershell
 cd C:\path\to\BidSmart
 
-# Load Schema
-mysql -u bidsmart_user -pbidsmart_pass123 bidsmart_db < database\schema.sql
+# Use database\schema.sql only for a new, empty database.
+# Never run it against an existing database; it drops and recreates tables.
+mysql -u bidsmart_user -p bidsmart_db < database\schema.sql
 
-# Load Seed Data
-mysql -u bidsmart_user -pbidsmart_pass123 bidsmart_db < database\seed_data.sql
+# Add the category taxonomy only; this does not create products or auctions.
+mysql -u bidsmart_user -p bidsmart_db < database\category_catalog.sql
 ```
 
-Verify that the 10 tables, views, and stored procedures are created:
+For an existing database, back it up and validate the current schema first.
+Do not run `schema.sql`; follow the existing-database migration instructions
+in `database/README.md` (migration 002, then migration 003 when required).
+Run `category_catalog.sql` only if the category taxonomy is missing.
+
+Verify that the tables, views, and stored procedures are created:
 ```powershell
-mysql -u bidsmart_user -pbidsmart_pass123 bidsmart_db -e "SHOW TABLES; SHOW PROCEDURE STATUS WHERE Db='bidsmart_db';"
+mysql -u bidsmart_user -p bidsmart_db -e "SHOW TABLES; SHOW PROCEDURE STATUS WHERE Db='bidsmart_db';"
 ```
 
 ---
@@ -116,11 +123,14 @@ copy .env.example .env
 ```
 
 ### Step 4.1: Generate a Secure Secret Key
-Generate a strong random 256-bit hexadecimal key in PowerShell:
+Generate a strong random 256-bit hexadecimal key and place it on the clipboard
+without displaying it in the terminal:
 ```powershell
-python -c "import secrets; print(secrets.token_hex(32))"
+$secret = python -c "import secrets; print(secrets.token_hex(32))"
+Set-Clipboard -Value $secret
+Remove-Variable secret
 ```
-Copy the generated string.
+Paste the clipboard value into the local `.env` file.
 
 ### Step 4.2: Edit `.env`
 Open `.env` in Notepad:
@@ -144,7 +154,7 @@ REFRESH_TOKEN_EXPIRE_DAYS=7
 MYSQL_SERVER="127.0.0.1"
 MYSQL_PORT=3306
 MYSQL_USER="bidsmart_user"
-MYSQL_PASSWORD="bidsmart_pass123"
+MYSQL_PASSWORD="<YOUR_DATABASE_PASSWORD>"
 MYSQL_DB="bidsmart_db"
 
 # Connection Pool Settings
@@ -307,6 +317,8 @@ npm run build
 ```
 
 ### Verified Quick Demo Credentials for UI Testing:
+
+These accounts are available only when the legacy demo seed dataset has been loaded. For normal setup, register accounts in the application; do not load demo seed data.
 - **Buyer Account:** Username `demo_buyer` (or `elena_r`), Password `Password123` (or `password123`)
 - **Seller Account:** Username `demo_seller` (or `vance_estates`), Password `Password123` (or `password123`)
 - **Administrator Account:** Username `demo_admin` (or `admin_sarah`), Password `Password123` (or `password123`)
@@ -315,16 +327,28 @@ npm run build
 
 ---
 
-## 8. Running the Automated Test Suites on Windows
+## 8. Safe Validation Commands
 
-With your virtual environment activated:
+Run ordinary backend tests from `backend\` with the virtual environment
+activated. These commands exclude tests requiring the separately provisioned
+MySQL concurrency database; ordinary API tests use isolated SQLite fixtures.
 
 ```powershell
-# Run the complete 82 backend tests
-pytest -v
-
-# Run the 43 database verification tests
-python ..\database\test_schema.py
+python -m pytest -q -m "not mysql" tests\test_auctions.py tests\test_bids.py
+python -m pytest -q tests\test_payment_service.py tests\test_payments_api.py
+python -m pytest -q tests\test_analytics.py tests\test_transaction_payment_lifecycle.py
+python -m pytest -q -m "not mysql" tests\test_closing_and_notifications.py
 ```
 
-All 82 backend tests (100% passing) and 43 database verification tests will execute cleanly.
+Run focused frontend checks from `frontend\`:
+
+```powershell
+npm test -- src/test/payments.test.jsx src/test/paymentManagement.test.jsx src/test/analytics.test.jsx
+$env:VITE_API_BASE_URL = "https://<your-backend-origin>"
+npm run build
+```
+
+Do not run `database\test_schema.py` as part of ordinary validation. It is a
+legacy write-capable integration script and may run only against an explicitly
+provisioned disposable loopback database after its documented safeguards are
+configured. Never run it against a development or production database.
