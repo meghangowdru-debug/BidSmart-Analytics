@@ -54,6 +54,17 @@ def get_current_user(
     if user is None:
         raise credentials_exception
 
+    if user.status == UserStatus.SUSPENDED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account suspended: Access denied. Please contact platform administration."
+        )
+    if user.status != UserStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Account inactive: Current status is '{user.status}'."
+        )
+
     return user
 
 
@@ -74,7 +85,10 @@ def get_optional_current_user(
         if user_id_str is None or token_type != "access":
             return None
         user_id = int(user_id_str)
-        return db.query(User).filter(User.id == user_id).first()
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None or user.status != UserStatus.ACTIVE:
+            return None
+        return user
     except Exception:
         return None
 

@@ -7,7 +7,7 @@ A seller without a row is treated as NOT_STARTED, so existing accounts need no b
 
 import enum
 
-from sqlalchemy import Column, DateTime, Enum as SQLEnum, ForeignKey, Integer, func
+from sqlalchemy import Column, DateTime, Enum as SQLEnum, ForeignKey, Index, Integer, func
 
 from app.db.base_class import Base
 
@@ -40,8 +40,9 @@ class SellerPaymentProfile(Base):
         SQLEnum(SellerPaymentSetupStatus, native_enum=True),
         default=SellerPaymentSetupStatus.PENDING,
         nullable=False,
-        index=True,
     )
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (Index("idx_seller_payment_profiles_status", "status"),)

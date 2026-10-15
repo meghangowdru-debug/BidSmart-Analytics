@@ -25,7 +25,9 @@ export const SellerPaymentSetupPanel = ({
             Payment Setup
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Required before you can catalog products or create auctions.
+            {setup?.required
+              ? 'Required before you can catalog products or create auctions.'
+              : 'Optional while the platform rollout is disabled.'}
           </p>
         </div>
         <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-800">
@@ -47,6 +49,11 @@ export const SellerPaymentSetupPanel = ({
             Retry
           </button>
         </div>
+      ) : setup?.status === 'DISABLED' ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          Payment setup is currently disabled and does not block listing. This is a simulated
+          demo flow; it does not collect bank details or enable real payouts.
+        </p>
       ) : setup?.status === 'NOT_REQUIRED' ? (
         <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
           {setup.message}

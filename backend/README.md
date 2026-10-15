@@ -66,10 +66,10 @@ The **BidSmart Analytics** platform implements an end-to-end auction marketplace
      - Bulk mark-all-read (`POST /api/v1/notifications/read-all`).
      - Cross-user isolation guarantees: Users cannot view or modify other users' notifications.
 
-7. **Deterministic Local Closing Architecture (No Untracked Scheduler):**
-   - The platform intentionally does **not** run an untracked background daemon or hidden scheduler in local development.
-   - Instead, auction settlement is exposed via deterministic, idempotent REST endpoints (`POST /api/v1/auctions/close-expired` and `POST /api/v1/auctions/{id}/close`).
-   - In production, these endpoints or the underlying service function (`close_all_expired_auctions`) can be triggered by standard schedulers (such as Windows Task Scheduler, systemd timer, cron, or Celery beat) without risk of race conditions or duplicate settlements.
+7. **Auction Closing Scheduler and Deterministic Endpoints:**
+   - The FastAPI lifespan starts the built-in scheduler when `ENABLE_AUCTION_SCHEDULER=True` (the default). It activates due scheduled auctions and closes expired auctions every `SCHEDULER_INTERVAL_SECONDS` (30 seconds by default).
+   - Set `ENABLE_AUCTION_SCHEDULER=False` when deterministic manual closing is needed; the idempotent REST endpoints (`POST /api/v1/auctions/close-expired` and `POST /api/v1/auctions/{id}/close`) remain available.
+   - The scheduler runs once per application process. Closing uses database row locks and is designed to be safe across workers, but multiple processes still perform separate polling cycles. If using an external scheduler, disable the built-in one to avoid redundant polling.
 
 ---
 
@@ -276,6 +276,15 @@ strong `SECRET_KEY`, the production `MYSQL_SERVER`, `MYSQL_PORT`, `MYSQL_USER`,
 deployed Vercel origin. Configuration validation rejects debug mode, placeholder
 credentials, and loopback database hosts in production. Set values through the
 Render environment/secret settings; never print or commit secret values.
+Set the Render health-check path to `/health`: startup logs a database
+connectivity failure but continues, while this endpoint returns HTTP 503 when
+the database health check fails.
+
+For Aiven hosts ending in `.aivencloud.com`, the database layer requires a
+valid CA certificate with hostname verification enabled. Provide the certificate
+as a Render secret file and set `MYSQL_SSL_CA_PATH` to its absolute mounted
+path. The repository does not include this certificate; startup fails if it
+cannot be found.
 
 Payments remain restricted to Razorpay TEST MODE. Configure
 `RAZORPAY_MODE=test`, `RAZORPAY_CURRENCY=USD`, `RAZORPAY_KEY_ID`,

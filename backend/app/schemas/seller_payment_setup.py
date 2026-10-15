@@ -7,7 +7,9 @@ from pydantic import BaseModel, Field
 
 
 class SellerPaymentSetupOut(BaseModel):
-    status: Literal["NOT_STARTED", "PENDING", "DEMO_COMPLETED", "NOT_REQUIRED"]
+    status: Literal[
+        "NOT_STARTED", "PENDING", "DEMO_COMPLETED", "NOT_REQUIRED", "DISABLED"
+    ]
     mode: Literal["DEMO_SIMULATED"] = "DEMO_SIMULATED"
     required: bool = Field(description="Whether this account must finish setup before listing.")
     can_list: bool = Field(description="Whether the backend currently allows product and auction creation.")

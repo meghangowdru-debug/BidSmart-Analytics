@@ -442,7 +442,7 @@ def update_auction(
 
     # 3. Enforce active bidding protections
     has_bids = auction.total_bids > 0 or auction.current_highest_bid is not None
-    if auction.status == AuctionStatus.ACTIVE and has_bids:
+    if has_bids:
         if auction_in.starting_price is not None and auction_in.starting_price != auction.starting_price:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -510,6 +510,12 @@ def update_auction(
     if auction_in.status is not None:
         new_status = AuctionStatus(auction_in.status)
         # Cannot directly transition to automated closed states (must use engine or cancel)
+        if new_status == AuctionStatus.DRAFT and has_bids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot move an auction with bids back to draft."
+            )
+
         if new_status in [AuctionStatus.COMPLETED, AuctionStatus.UNSOLD, AuctionStatus.RESERVE_NOT_MET]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

@@ -506,7 +506,7 @@ class PaymentService:
                 detail="Invalid Razorpay payment event payload.",
             ) from exc
 
-        resolved_event_id = event_id or hashlib.sha256(raw_body).hexdigest()
+        resolved_event_id = hashlib.sha256(raw_body).hexdigest()
         if len(resolved_event_id) > 64:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

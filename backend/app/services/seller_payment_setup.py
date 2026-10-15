@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.seller_payment_profile import (
     SellerPaymentProfile,
     SellerPaymentSetupMode,
@@ -52,8 +53,10 @@ def get_profile(db: Session, seller_id: int) -> Optional[SellerPaymentProfile]:
 
 
 def is_setup_complete(db: Session, user: User) -> bool:
-    """Administrators are exempt; sellers need a completed profile row."""
+    """Admins are exempt; sellers are exempt until setup enforcement is enabled."""
     if _role_name(user) != "SELLER":
+        return True
+    if not settings.ENABLE_SELLER_PAYMENT_SETUP:
         return True
     require_setup_table(db)
     profile = get_profile(db, user.id)

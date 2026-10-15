@@ -38,6 +38,7 @@ apiClient.interceptors.response.use(
       // Discard invalid / expired auth state
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem('refresh_token');
       window.dispatchEvent(new Event('auth:unauthorized'));
     }
     return Promise.reject(error);

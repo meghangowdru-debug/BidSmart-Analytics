@@ -52,8 +52,12 @@ def _payment_attempts_available(db: Session) -> bool:
     cached = db.info.get("payment_attempts_available")
     if cached is None:
         inspector = sqlalchemy_inspect(db.get_bind())
-        cached = inspector.has_table("payment_attempts") and REQUIRED_TRANSACTION_COLUMNS.issubset(
-            {column["name"] for column in inspector.get_columns("transactions")}
+        cached = (
+            inspector.has_table("payment_attempts")
+            and inspector.has_table("transactions")
+            and REQUIRED_TRANSACTION_COLUMNS.issubset(
+                {column["name"] for column in inspector.get_columns("transactions")}
+            )
         )
         db.info["payment_attempts_available"] = cached
     return cached

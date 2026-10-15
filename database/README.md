@@ -335,6 +335,16 @@ webhook to call `/api/v1/payments/webhook`. Never place the key secret or
 webhook secret in frontend configuration. The key ID is returned by the
 authenticated order endpoint for Checkout.
 
+Seller payment setup tracking is added by
+`migrations/004_seller_payment_profiles.sql`, after migrations 002 and 003.
+The application setting `ENABLE_SELLER_PAYMENT_SETUP` defaults to `False`.
+Keep it disabled until migration 004 is verified and sellers have been informed.
+When enabled, sellers without a completed profile must acknowledge the simulated
+setup before creating products or auctions; this does not enable provider
+onboarding or real payouts. Follow
+`operations/AIVEN_MIGRATION_RUNBOOK_BEGINNER.md` for the existing-database
+preflight and one-statement-at-a-time repair procedure.
+
 ### 6.2 Legacy Database Verification Script
 
 Do not run `database/test_schema.py` against a development or production

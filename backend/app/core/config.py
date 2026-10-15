@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     ENABLE_AUCTION_SCHEDULER: bool = True
     SCHEDULER_INTERVAL_SECONDS: int = 30
 
+    # Seller payment setup rollout. Enable only after the schema and seller communication are ready.
+    ENABLE_SELLER_PAYMENT_SETUP: bool = False
+
     # Payment processing is restricted to Razorpay test mode.
     RAZORPAY_MODE: str = "test"
     RAZORPAY_KEY_ID: str = ""

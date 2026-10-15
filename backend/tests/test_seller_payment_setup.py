@@ -3,8 +3,10 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.models.product import Product
 from app.models.seller_payment_profile import (
     SellerPaymentProfile,
@@ -27,6 +29,14 @@ def _headers(client, username):
         json={"username_or_email": username, "password": "password123"},
     )
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@pytest.fixture(autouse=True)
+def enable_seller_payment_setup():
+    previous = settings.ENABLE_SELLER_PAYMENT_SETUP
+    settings.ENABLE_SELLER_PAYMENT_SETUP = True
+    yield
+    settings.ENABLE_SELLER_PAYMENT_SETUP = previous
 
 
 @pytest.fixture(autouse=True)
@@ -114,6 +124,26 @@ def test_completing_demo_setup_unlocks_listing_and_is_idempotent(client, db, uns
     assert first.json()["payouts_enabled"] is False
     assert db.query(SellerPaymentProfile).filter_by(seller_id=4).count() == 1
     assert client.post("/api/v1/products", json=PRODUCT, headers=unsetup_seller).status_code == 201
+
+
+def test_integrity_error_during_setup_is_not_reported_as_success(
+    client, db, unsetup_seller, monkeypatch
+):
+    from app.services import seller_payment_setup as setup_service
+
+    def fail_demo_completion(*_args, **_kwargs):
+        raise IntegrityError("INSERT", {}, Exception("simulated integrity failure"))
+
+    monkeypatch.setattr(setup_service, "mark_demo_complete", fail_demo_completion)
+
+    with pytest.raises(IntegrityError, match="simulated integrity failure"):
+        client.post(
+            "/api/v1/sellers/me/payment-setup/demo",
+            json={"acknowledge_simulated": True},
+            headers=unsetup_seller,
+        )
+
+    assert db.query(SellerPaymentProfile).filter_by(seller_id=4).count() == 0
 
 
 def test_setup_is_per_seller_and_cannot_be_completed_for_another_account(client, db, unsetup_seller):

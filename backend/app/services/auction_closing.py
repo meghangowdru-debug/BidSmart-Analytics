@@ -54,21 +54,31 @@ def close_single_auction(
 
     # 2. Permission and privilege verification
     closing_user = None
-    is_privileged = False
+    is_admin = False
+    is_owner = False
+
     if closing_user_id is not None:
-        closing_user = db.query(User).options(joinedload(User.role)).filter(User.id == closing_user_id).first()
+        closing_user = db.query(User).options(
+            joinedload(User.role)
+        ).filter(User.id == closing_user_id).first()
+
         if closing_user:
-            if closing_user.role and closing_user.role.name == "ADMIN":
-                is_privileged = True
-            elif auction.product and auction.product.seller_id == closing_user.id:
-                is_privileged = True
-            else:
+            is_admin = bool(
+                closing_user.role and closing_user.role.name == "ADMIN"
+            )
+            is_owner = bool(
+                auction.product and auction.product.seller_id == closing_user.id
+            )
+
+            if not is_admin and not is_owner:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Permission denied: You do not own this auction listing."
                 )
 
-    if force_close and not is_privileged:
+    is_privileged = is_admin or is_owner
+
+    if force_close and not is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: Only administrators can force close an auction before its deadline."

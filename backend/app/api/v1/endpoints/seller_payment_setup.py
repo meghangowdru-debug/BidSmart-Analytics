@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_seller
+from app.core.config import settings
 from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.schemas.seller_payment_setup import SellerPaymentSetupDemoIn, SellerPaymentSetupOut
@@ -33,6 +34,13 @@ def _status_out(db: Session, user: User) -> SellerPaymentSetupOut:
             required=False,
             can_list=True,
             message="Payment setup applies to seller accounts only.",
+        )
+    if not settings.ENABLE_SELLER_PAYMENT_SETUP:
+        return SellerPaymentSetupOut(
+            status="DISABLED",
+            required=False,
+            can_list=True,
+            message="Seller payment setup is disabled by platform configuration.",
         )
     setup_service.require_setup_table(db)
     profile = setup_service.get_profile(db, user.id)
@@ -77,6 +85,10 @@ def complete_demo_payment_setup(
 ):
     if current_user.role is None or current_user.role.name.upper() != "SELLER":
         return _status_out(db, current_user)
+
+    if not settings.ENABLE_SELLER_PAYMENT_SETUP:
+        return _status_out(db, current_user)
+
     if not payload.acknowledge_simulated:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -97,4 +109,6 @@ def complete_demo_payment_setup(
         db.commit()
     except IntegrityError:
         db.rollback()
+        if not setup_service.is_setup_complete(db, current_user):
+            raise
     return _status_out(db, current_user)

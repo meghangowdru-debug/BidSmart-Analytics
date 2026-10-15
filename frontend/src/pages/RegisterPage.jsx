@@ -116,9 +116,10 @@ export const RegisterPage = () => {
                   data-testid="seller-payment-setup-notice"
                   className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[11px] leading-snug text-amber-900"
                 >
-                  <strong>Payment Setup is required for sellers.</strong> After registering you must
-                  complete a simulated demo payment setup before listing products or creating
-                  auctions. No bank details are collected and no real payouts are enabled.
+                  Seller Payment Setup may be required by platform configuration. After
+                  registration, the Seller Console shows whether setup is currently required.
+                  Any setup offered here is simulated: no bank details are collected and no
+                  real payouts are enabled.
                 </div>
               )}
             </div>

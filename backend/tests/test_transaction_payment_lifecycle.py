@@ -14,10 +14,12 @@ from app.db.base_class import Base
 import app.models  # noqa: F401 - register all ORM tables
 from app.models.transaction import (
     PAYMENT_STATUS_TRANSITIONS,
+    PaymentAttempt,
     PaymentStatus,
     Transaction,
     is_payment_status_transition_allowed,
 )
+from app.models.seller_payment_profile import SellerPaymentProfile
 
 
 @pytest.fixture()
@@ -127,3 +129,24 @@ def test_schema_and_migration_include_compatible_payment_lifecycle():
     assert "ADD COLUMN settled_at TIMESTAMP NULL DEFAULT NULL" in migration
     assert "idx_transactions_settled_at" in schema
     assert "idx_transactions_settled_at" in migration
+
+
+def test_payment_migration_indexes_match_orm_metadata():
+    root = Path(__file__).resolve().parents[2]
+    payment_migration = (
+        root / "database" / "migrations" / "003_razorpay_payment_attempts.sql"
+    ).read_text(encoding="utf-8")
+    seller_migration = (
+        root / "database" / "migrations" / "004_seller_payment_profiles.sql"
+    ).read_text(encoding="utf-8")
+
+    assert any(
+        index.name == "idx_payment_attempts_status"
+        for index in PaymentAttempt.__table__.indexes
+    )
+    assert "idx_payment_attempts_status" in payment_migration
+    assert any(
+        index.name == "idx_seller_payment_profiles_status"
+        for index in SellerPaymentProfile.__table__.indexes
+    )
+    assert "idx_seller_payment_profiles_status" in seller_migration

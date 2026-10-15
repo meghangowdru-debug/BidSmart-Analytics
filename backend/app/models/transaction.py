@@ -101,13 +101,13 @@ class PaymentAttempt(Base):
         default=PaymentAttemptStatus.ORDER_CREATED,
         server_default=PaymentAttemptStatus.ORDER_CREATED.value,
         nullable=False,
-        index=True,
     )
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
         CheckConstraint("amount_minor >= 1", name="chk_payment_attempt_amount"),
+        Index("idx_payment_attempts_status", "status"),
     )
 
     transaction = relationship("Transaction", back_populates="payment_attempt")

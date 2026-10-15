@@ -456,6 +456,21 @@ def test_captured_webhook_completes_and_duplicate_event_is_idempotent(
     assert db.query(PaymentWebhookEvent).count() == 1
 
 
+def test_same_signed_webhook_body_dedupes_across_event_ids(
+    db, payment_context, service
+):
+    order = _create_order(service, db, payment_context)
+    payload = _captured_webhook(order["order_id"])
+
+    first = _webhook(service, db, payload, event_id="evt_test_one")
+    second = _webhook(service, db, payload, event_id="evt_test_two")
+
+    assert first["status"] == "processed"
+    assert second["status"] == "duplicate"
+    assert first["event_id"] == second["event_id"]
+    assert db.query(PaymentWebhookEvent).count() == 1
+
+
 def test_webhook_rejects_invalid_signature_without_database_changes(
     db, payment_context, service
 ):

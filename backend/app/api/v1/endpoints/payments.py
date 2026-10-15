@@ -41,7 +41,7 @@ router = APIRouter()
 
 
 def _require_payment_tables(db: Session, *, webhook_events: bool = False) -> None:
-    required = ["payment_attempts"]
+    required = ["transactions", "payment_attempts"]
     if webhook_events:
         required.append("payment_webhook_events")
     inspector = sqlalchemy_inspect(db.get_bind())
@@ -281,6 +281,9 @@ def list_my_seller_transactions(
         )
     )
     verified_settlement = and_(
+        Auction.status == AuctionStatus.COMPLETED,
+        Transaction.buyer_id == Auction.winner_id,
+        Transaction.seller_id == Product.seller_id,
         Transaction.payment_status == PaymentStatus.SETTLEMENT_COMPLETED_DEMO,
         Transaction.settlement_type == SettlementType.SIMULATED_DEMO,
         Transaction.settled_at.isnot(None),
@@ -290,6 +293,9 @@ def list_my_seller_transactions(
         PaymentAttempt.amount_minor == Transaction.amount * 100,
     )
     verified_payment = and_(
+        Auction.status == AuctionStatus.COMPLETED,
+        Transaction.buyer_id == Auction.winner_id,
+        Transaction.seller_id == Product.seller_id,
         Transaction.settlement_type == SettlementType.SIMULATED_DEMO,
         PaymentAttempt.status == PaymentAttemptStatus.PAYMENT_COMPLETED,
         PaymentAttempt.provider_payment_id.isnot(None),

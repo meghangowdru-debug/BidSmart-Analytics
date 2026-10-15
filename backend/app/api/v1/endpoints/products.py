@@ -346,6 +346,13 @@ def delete_product(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot delete product with auction in '{product.auction.status.value}' status."
             )
+
+        if product.auction.total_bids > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete a product whose auction has bid history."
+            )
+
         # If auction is DRAFT or CANCELLED, remove the auction first
         db.delete(product.auction)
 
