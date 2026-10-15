@@ -34,6 +34,11 @@ from app.models.category import Category
 from app.models.notification import Notification
 from app.models.product import Product, ProductCondition
 from app.models.role import Role
+from app.models.seller_payment_profile import (
+    SellerPaymentProfile,
+    SellerPaymentSetupMode,
+    SellerPaymentSetupStatus,
+)
 from app.models.transaction import (
     PaymentAttempt,
     PaymentStatus,
@@ -97,9 +102,19 @@ def _seed_marketplace(db: Session) -> None:
         for user_id in range(11, 37)
     )
     db.add_all(users)
+    db.flush()
+    db.add_all(
+        SellerPaymentProfile(
+            seller_id=user.id,
+            setup_mode=SellerPaymentSetupMode.DEMO_SIMULATED,
+            status=SellerPaymentSetupStatus.DEMO_COMPLETED,
+            completed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+        for user in users
+        if user.role is roles["SELLER"]
+    )
 
-    categories = [
-        Category(id=1, name="Electronics & Computing", slug="electronics-computing", icon_name="Cpu"),
+    categories = [        Category(id=1, name="Electronics & Computing", slug="electronics-computing", icon_name="Cpu"),
         Category(id=2, name="Fine Art & Antiques", slug="fine-art-antiques", icon_name="Palette"),
         Category(id=3, name="Collectibles", slug="collectibles", icon_name="Tag"),
         Category(id=4, name="Jewelry & Watches", slug="jewelry-watches", icon_name="Watch"),

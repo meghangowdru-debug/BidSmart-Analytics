@@ -15,6 +15,7 @@ from app.api.v1.endpoints import (
     notifications,
     analytics,
     payments,
+    seller_payment_setup,
 )
 
 api_router = APIRouter()
@@ -38,3 +39,8 @@ api_router.include_router(bids.router, tags=["Bidding Engine"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 api_router.include_router(payments.router, prefix="/payments", tags=["Payments"])
+api_router.include_router(
+    seller_payment_setup.router,
+    prefix="/sellers/me/payment-setup",
+    tags=["Seller Payment Setup"],
+)

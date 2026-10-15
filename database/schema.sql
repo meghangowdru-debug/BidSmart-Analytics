@@ -8,6 +8,7 @@
 
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS seller_payment_profiles;
 DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS payment_webhook_events;
 DROP TABLE IF EXISTS payment_attempts;
@@ -247,6 +248,23 @@ CREATE TABLE payment_webhook_events (
     event_id VARCHAR(64) PRIMARY KEY,
     event_type VARCHAR(64) NOT NULL,
     received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- 9c. SELLER PAYMENT PROFILES TABLE
+-- Purpose: Track mandatory (simulated demo) seller payment setup. No bank data.
+-- -----------------------------------------------------------------------------
+CREATE TABLE seller_payment_profiles (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    seller_id INT NOT NULL UNIQUE,
+    setup_mode ENUM('DEMO_SIMULATED') NOT NULL DEFAULT 'DEMO_SIMULATED',
+    status ENUM('PENDING', 'DEMO_COMPLETED') NOT NULL DEFAULT 'PENDING',
+    completed_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_seller_payment_profiles_user FOREIGN KEY (seller_id)
+        REFERENCES users(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    INDEX idx_seller_payment_profiles_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------

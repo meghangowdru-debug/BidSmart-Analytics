@@ -43,7 +43,7 @@ export const RegisterPage = () => {
 
     if (result.success) {
       if (formData.role === 'SELLER') {
-        navigate('/dashboard/seller', { replace: true });
+        navigate('/dashboard/seller', { replace: true, state: { tab: 'payment-setup' } });
       } else {
         navigate('/dashboard/buyer', { replace: true });
       }
@@ -111,6 +111,16 @@ export const RegisterPage = () => {
                   </p>
                 </button>
               </div>
+              {formData.role === 'SELLER' && (
+                <div
+                  data-testid="seller-payment-setup-notice"
+                  className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-[11px] leading-snug text-amber-900"
+                >
+                  <strong>Payment Setup is required for sellers.</strong> After registering you must
+                  complete a simulated demo payment setup before listing products or creating
+                  auctions. No bank details are collected and no real payouts are enabled.
+                </div>
+              )}
             </div>
 
             {/* Grid 2 cols for Username and Full Name */}

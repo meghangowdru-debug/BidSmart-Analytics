@@ -21,6 +21,11 @@ from app.models.transaction import (
     PaymentWebhookEvent,
 )
 from app.models.audit_log import AuditLog
+from app.models.seller_payment_profile import (
+    SellerPaymentProfile,
+    SellerPaymentSetupMode,
+    SellerPaymentSetupStatus,
+)
 
 __all__ = [
     "Base",
@@ -42,5 +47,8 @@ __all__ = [
     "PaymentAttempt",
     "PaymentAttemptStatus",
     "PaymentWebhookEvent",
-    "AuditLog"
+    "AuditLog",
+    "SellerPaymentProfile",
+    "SellerPaymentSetupMode",
+    "SellerPaymentSetupStatus",
 ]

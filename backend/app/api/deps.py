@@ -156,3 +156,14 @@ require_seller = RoleChecker(["SELLER", "ADMIN"])
 require_buyer = RoleChecker(["BUYER", "ADMIN"])
 require_buyer_only = RoleChecker(["BUYER"])
 require_seller_only = RoleChecker(["SELLER"])
+
+
+def require_seller_payment_setup(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_seller),
+) -> User:
+    """Sellers must complete payment setup before listing; administrators are exempt."""
+    from app.services.seller_payment_setup import require_setup_complete
+
+    require_setup_complete(db, current_user)
+    return current_user

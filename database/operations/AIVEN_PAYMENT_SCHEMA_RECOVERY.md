@@ -242,6 +242,29 @@ default engine, so verify that its effective engine is InnoDB. Stop and prepare
 a separate, reviewed repair if a table is partial or incompatible; never drop
 or recreate it automatically.
 
+### 3. Create the seller payment setup table (migration 004)
+
+Needed only by the mandatory seller payment setup feature. Read-only preflight:
+
+```sql
+SELECT COUNT(*) AS table_present
+FROM information_schema.tables
+WHERE table_schema = DATABASE() AND table_name = 'seller_payment_profiles';
+```
+
+If the count is 0, confirm `users.id` is `INT` (it must match the foreign key),
+then run only the `CREATE TABLE` in `migrations/004_seller_payment_profiles.sql`.
+Do not use `IF NOT EXISTS` as a substitute for validation. If the table already
+exists, compare it with the migration instead of rerunning it. The migration adds
+no rows: existing sellers appear as NOT_STARTED and must complete the simulated
+setup in the Seller Console before they can catalog products or create auctions.
+Setup is a simulated demo acknowledgement only: no bank details are collected
+and no payouts are enabled. Real provider onboarding is not implemented.
+
+Deploy order: create this table before, or together with, the backend that
+contains the gate. Without it, seller product and auction creation return HTTP
+503 (fail closed); login, catalog, bidding and analytics are unaffected.
+
 ## Partial failure behavior
 
 MySQL DDL implicitly commits; do not assume a multi-statement migration rolls

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   Store,
   Package,
@@ -26,6 +26,11 @@ import { EmptyState } from '../components/common/EmptyState';
 import { ErrorAlert } from '../components/common/ErrorAlert';
 import { SuccessAlert } from '../components/common/SuccessAlert';
 import { SellerPaymentsPanel } from '../components/dashboard/SellerPaymentsPanel';
+import {
+  SellerPaymentSetupPanel,
+  PAYMENT_SETUP_REQUIRED_MESSAGE,
+} from '../components/dashboard/SellerPaymentSetupPanel';
+import { sellerPaymentSetupApi } from '../api/sellerPaymentSetup';
 import { getErrorMessage } from '../api/client';
 import { canCloseAuction, canCancelAuction } from '../utils/auctionActions';
 import {
@@ -40,7 +45,8 @@ export const SellerDashboardPage = () => {
   const { user } = useAuth();
   const [scheduleClock, setScheduleClock] = useState(() => new Date());
 
-  const [activeTab, setActiveTab] = useState('auctions'); // 'auctions' | 'products' | 'analytics'
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState(location.state?.tab || 'auctions');
   const [auctions, setAuctions] = useState([]);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -77,6 +83,51 @@ export const SellerDashboardPage = () => {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scheduleError, setScheduleError] = useState(null);
+  const [paymentSetup, setPaymentSetup] = useState(null);
+  const [setupLoading, setSetupLoading] = useState(true);
+  const [setupError, setSetupError] = useState(null);
+  const [setupSubmitting, setSetupSubmitting] = useState(false);
+
+  const loadPaymentSetup = useCallback(async () => {
+    setSetupLoading(true);
+    setSetupError(null);
+    try {
+      setPaymentSetup(await sellerPaymentSetupApi.getStatus());
+    } catch (err) {
+      setSetupError(getErrorMessage(err));
+    } finally {
+      setSetupLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadPaymentSetup();
+  }, [loadPaymentSetup]);
+
+  const handleCompleteSetup = async () => {
+    setSetupSubmitting(true);
+    setSetupError(null);
+    try {
+      setPaymentSetup(await sellerPaymentSetupApi.completeDemoSetup());
+      setSuccess('Simulated payment setup complete. No real payouts are enabled.');
+    } catch (err) {
+      setSetupError(getErrorMessage(err));
+    } finally {
+      setSetupSubmitting(false);
+    }
+  };
+
+  // Only a confirmed "cannot list" blocks the UI; the backend remains the real enforcement.
+  const setupBlocksListing = paymentSetup?.can_list === false;
+
+  const requireSetupOrOpen = (open) => {
+    if (setupBlocksListing) {
+      setActiveTab('payment-setup');
+      setError(PAYMENT_SETUP_REQUIRED_MESSAGE);
+      return;
+    }
+    open();
+  };
 
   useEffect(() => {
     const clock = setInterval(() => setScheduleClock(new Date()), 30000);
@@ -232,6 +283,10 @@ export const SellerDashboardPage = () => {
   };
 
   const openAuctionModalForProduct = (product) => {
+    if (setupBlocksListing) {
+      requireSetupOrOpen(() => {});
+      return;
+    }
     const startTime = toLocalDateTimeInput(new Date());
     setSelectedProductForAuction(product);
     setScheduleError(null);
@@ -283,7 +338,7 @@ export const SellerDashboardPage = () => {
 
         <div className="flex items-center space-x-3">
           <button
-            onClick={() => setShowProductModal(true)}
+            onClick={() => requireSetupOrOpen(() => setShowProductModal(true))}
             className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-colors shadow-sm"
           >
             <PlusCircle className="w-4 h-4" />
@@ -304,6 +359,25 @@ export const SellerDashboardPage = () => {
 
       {success && <SuccessAlert message={success} onClose={() => setSuccess(null)} />}
       {error && <ErrorAlert message={error} onClose={() => setError(null)} />}
+
+      {setupBlocksListing && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          <span>
+            <strong>Payment Setup required.</strong> {PAYMENT_SETUP_REQUIRED_MESSAGE} (Simulated demo
+            setup; no real payouts.)
+          </span>
+          <button
+            type="button"
+            onClick={() => setActiveTab('payment-setup')}
+            className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700"
+          >
+            Complete Payment Setup
+          </button>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -373,6 +447,16 @@ export const SellerDashboardPage = () => {
             Performance & Analytics
           </button>
           <button
+            onClick={() => setActiveTab('payment-setup')}
+            className={`inline-flex shrink-0 items-center gap-1.5 pb-3 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 ${
+              activeTab === 'payment-setup'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Payment Setup{setupBlocksListing ? ' (Required)' : ''}
+          </button>
+          <button
             onClick={() => setActiveTab('payments')}
             className={`inline-flex shrink-0 items-center gap-1.5 pb-3 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 ${
               activeTab === 'payments'
@@ -397,7 +481,7 @@ export const SellerDashboardPage = () => {
                 description="Catalog a product first, then launch an auction with your desired starting and reserve prices."
                 action={
                   <button
-                    onClick={() => setShowProductModal(true)}
+                    onClick={() => requireSetupOrOpen(() => setShowProductModal(true))}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700"
                   >
                     Catalog Product Now
@@ -514,7 +598,7 @@ export const SellerDashboardPage = () => {
                 description="Add products to your catalog to make them available for auction listings."
                 action={
                   <button
-                    onClick={() => setShowProductModal(true)}
+                    onClick={() => requireSetupOrOpen(() => setShowProductModal(true))}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700"
                   >
                     Add Product Now
@@ -579,6 +663,19 @@ export const SellerDashboardPage = () => {
               dataKey="count"
               xKey="name"
               title="Auction Listings Status Breakdown"
+            />
+          </div>
+        )}
+
+        {activeTab === 'payment-setup' && (
+          <div className="p-4 sm:p-6">
+            <SellerPaymentSetupPanel
+              setup={paymentSetup}
+              isLoading={setupLoading}
+              error={setupError}
+              isSubmitting={setupSubmitting}
+              onRetry={loadPaymentSetup}
+              onComplete={handleCompleteSetup}
             />
           </div>
         )}

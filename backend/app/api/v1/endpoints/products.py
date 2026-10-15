@@ -12,7 +12,8 @@ from sqlalchemy import or_, desc, asc
 from app.api.deps import (
     get_db,
     get_current_active_user,
-    require_seller
+    require_seller,
+    require_seller_payment_setup,
 )
 from app.models.user import User
 from app.models.product import Product, ProductCondition
@@ -197,7 +198,7 @@ def get_product_by_id(
 def create_product(
     product_in: ProductCreate,
     db: Session = Depends(get_db),
-    current_seller: User = Depends(require_seller)
+    current_seller: User = Depends(require_seller_payment_setup)
 ) -> Any:
     """
     Creates a new product listing owned by the authenticated seller.
