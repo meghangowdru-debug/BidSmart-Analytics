@@ -10,9 +10,9 @@ import {
   TrendingUp,
   RefreshCw,
   Clock,
-  DollarSign,
   Layers,
   X,
+  CreditCard,
 } from 'lucide-react';
 import { auctionsApi } from '../api/auctions';
 import { productsApi } from '../api/products';
@@ -25,6 +25,7 @@ import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorAlert } from '../components/common/ErrorAlert';
 import { SuccessAlert } from '../components/common/SuccessAlert';
+import { SellerPaymentsPanel } from '../components/dashboard/SellerPaymentsPanel';
 import { getErrorMessage } from '../api/client';
 import { canCloseAuction, canCancelAuction } from '../utils/auctionActions';
 import {
@@ -248,11 +249,6 @@ export const SellerDashboardPage = () => {
   // Computations
   const activeAuctions = auctions.filter((a) => a.status === 'ACTIVE');
   const completedAuctions = auctions.filter((a) => a.status === 'COMPLETED');
-  const totalRevenue = completedAuctions.reduce(
-    (acc, a) => acc + Number(a.current_highest_bid || 0),
-    0
-  );
-
   // Analytics data for Recharts
   const statusCounts = {
     ACTIVE: 0,
@@ -326,24 +322,24 @@ export const SellerDashboardPage = () => {
           color="purple"
         />
         <StatsCard
-          title="Completed Sales"
+          title="Completed Auctions"
           value={completedAuctions.length}
-          subtitle="Successfully settled items"
+          subtitle="Closed auction listings"
           icon={CheckCircle2}
           color="emerald"
         />
         <StatsCard
-          title="Total Gross Volume"
-          value={`$${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          subtitle="Simulated settlement value"
-          icon={DollarSign}
+          title="Winning Bids"
+          value={completedAuctions.filter((auction) => auction.current_highest_bid != null).length}
+          subtitle="Not payment or payout confirmation"
+          icon={Gavel}
           color="amber"
         />
       </div>
 
       {/* Tabs */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="border-b border-slate-200 flex space-x-6 px-6 pt-4">
+        <div className="border-b border-slate-200 flex gap-6 overflow-x-auto px-6 pt-4">
           <button
             onClick={() => setActiveTab('auctions')}
             className={`pb-3 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 ${
@@ -375,6 +371,17 @@ export const SellerDashboardPage = () => {
             }`}
           >
             Performance & Analytics
+          </button>
+          <button
+            onClick={() => setActiveTab('payments')}
+            className={`inline-flex shrink-0 items-center gap-1.5 pb-3 text-xs font-bold uppercase tracking-wider transition-colors border-b-2 ${
+              activeTab === 'payments'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <CreditCard className="h-4 w-4" />
+            Payments &amp; Earnings
           </button>
         </div>
 
@@ -573,6 +580,12 @@ export const SellerDashboardPage = () => {
               xKey="name"
               title="Auction Listings Status Breakdown"
             />
+          </div>
+        )}
+
+        {activeTab === 'payments' && (
+          <div className="p-4 sm:p-6">
+            <SellerPaymentsPanel />
           </div>
         )}
       </div>

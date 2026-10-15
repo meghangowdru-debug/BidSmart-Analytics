@@ -4,14 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { PaymentHistoryPage } from '../pages/PaymentHistoryPage';
 import { AdminTransactionsPage } from '../pages/AdminTransactionsPage';
+import { SellerPaymentsPanel } from '../components/dashboard/SellerPaymentsPanel';
 
-const { listMyTransactions, listAdminTransactions } = vi.hoisted(() => ({
+const { listMyTransactions, listMySellerTransactions, listAdminTransactions } = vi.hoisted(() => ({
   listMyTransactions: vi.fn(),
+  listMySellerTransactions: vi.fn(),
   listAdminTransactions: vi.fn(),
 }));
 
 vi.mock('../api/payments', () => ({
-  paymentsApi: { listMyTransactions, listAdminTransactions },
+  paymentsApi: { listMyTransactions, listMySellerTransactions, listAdminTransactions },
 }));
 
 vi.mock('../api/client', () => ({
@@ -126,5 +128,68 @@ describe('Payment history and admin monitoring', () => {
       page: 2,
       page_size: 20,
     }));
+  });
+
+  it('shows seller-scoped actual totals and does not imply a real payout', async () => {
+    listMySellerTransactions.mockResolvedValue({
+      ...pageResult([
+        {
+          ...transaction,
+          settlement_type: 'SIMULATED_DEMO',
+        },
+        {
+          ...transaction,
+          transaction_id: 9,
+          auction_id: 72,
+          payment_status: 'SETTLEMENT_PENDING_DEMO',
+          payment_verified: false,
+          settled_at: null,
+          settlement_type: 'SIMULATED_DEMO',
+        },
+      ]),
+      summary: {
+        total_sales: '240.00',
+        verified_payment_total: '240.00',
+        simulated_settlement_total: '240.00',
+        pending_settlements: '125.00',
+        completed_settlements: '240.00',
+        transaction_count: 2,
+      },
+    });
+    renderInRouter(<SellerPaymentsPanel />);
+
+    expect(await screen.findByText('Payments & Earnings')).toBeInTheDocument();
+    expect(screen.getAllByText('$240.00')).toHaveLength(4);
+    expect(screen.getByText('$125.00')).toBeInTheDocument();
+    expect(screen.getByText('Transactions')).toBeInTheDocument();
+    expect(screen.getByText('Payment verified (demo)')).toBeInTheDocument();
+    expect(screen.getByText('Payment pending')).toBeInTheDocument();
+    expect(screen.getByText('Completed (simulated)')).toBeInTheDocument();
+    expect(screen.getByText('Pending (simulated)')).toBeInTheDocument();
+    expect(screen.getAllByText(/SIMULATED_DEMO · no payout/)).toHaveLength(2);
+    expect(screen.getByText(/do not represent real money received or a seller payout/i)).toBeInTheDocument();
+    expect(listMySellerTransactions).toHaveBeenCalledWith({ page: 1, page_size: 20 });
+  });
+
+  it('shows seller payment errors, retries, and renders an empty state', async () => {
+    listMySellerTransactions
+      .mockRejectedValueOnce(new Error('Seller history unavailable'))
+      .mockResolvedValueOnce({
+        ...pageResult([]),
+        summary: {
+          total_sales: '0.00',
+          verified_payment_total: '0.00',
+          simulated_settlement_total: '0.00',
+          pending_settlements: '0.00',
+          completed_settlements: '0.00',
+          transaction_count: 0,
+        },
+      });
+    renderInRouter(<SellerPaymentsPanel />);
+
+    expect(await screen.findByText('Seller history unavailable')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('No seller transactions yet')).toBeInTheDocument();
+    expect(listMySellerTransactions).toHaveBeenCalledTimes(2);
   });
 });

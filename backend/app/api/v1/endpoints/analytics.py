@@ -6,7 +6,8 @@ from decimal import Decimal
 from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, func
+from sqlalchemy import case, false, func
+from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db
@@ -19,6 +20,7 @@ from app.models.transaction import (
     PaymentAttempt,
     PaymentAttemptStatus,
     PaymentStatus,
+    SettlementType,
     Transaction,
 )
 from app.models.user import User
@@ -36,6 +38,25 @@ from app.schemas.analytics import (
 
 router = APIRouter()
 SETTLED_STATUS = PaymentStatus.SETTLEMENT_COMPLETED_DEMO
+
+
+REQUIRED_TRANSACTION_COLUMNS = {"settlement_type", "payment_status", "settled_at"}
+
+
+def _payment_attempts_available(db: Session) -> bool:
+    """True only when the payment lifecycle schema (migrations 002 and 003) exists.
+
+    Only a missing schema is treated as "unavailable"; connection or other database
+    errors still propagate so they are not hidden.
+    """
+    cached = db.info.get("payment_attempts_available")
+    if cached is None:
+        inspector = sqlalchemy_inspect(db.get_bind())
+        cached = inspector.has_table("payment_attempts") and REQUIRED_TRANSACTION_COLUMNS.issubset(
+            {column["name"] for column in inspector.get_columns("transactions")}
+        )
+        db.info["payment_attempts_available"] = cached
+    return cached
 
 
 def _date_bounds(start_date: date, end_date: date):
@@ -107,13 +128,20 @@ def _settlement_base(
     buyer_id=None,
 ):
     query = db.query(Transaction).join(
-        PaymentAttempt, PaymentAttempt.transaction_id == Transaction.id
-    ).join(
         Auction, Transaction.auction_id == Auction.id
-    ).join(Product, Auction.product_id == Product.id).filter(
+    ).join(
+        Product, Auction.product_id == Product.id
+    )
+    if not _payment_attempts_available(db):
+        return query.filter(false())
+
+    query = query.join(
+        PaymentAttempt, PaymentAttempt.transaction_id == Transaction.id
+    ).filter(
         Auction.status == AuctionStatus.COMPLETED,
         Transaction.buyer_id == Auction.winner_id,
         Transaction.seller_id == Product.seller_id,
+        Transaction.settlement_type == SettlementType.SIMULATED_DEMO,
         Transaction.payment_status == SETTLED_STATUS,
         PaymentAttempt.status == PaymentAttemptStatus.PAYMENT_COMPLETED,
         PaymentAttempt.provider_payment_id.isnot(None),
@@ -385,7 +413,10 @@ def _trends(
         if buyer_auction_ids is None else {}
     )
     bids_by_day = _trend_rows(bid_q, Bid.bid_time)
-    settlements_by_day = _trend_rows(settlement_q, Transaction.settled_at, Transaction.amount)
+    settlements_by_day = (
+        _trend_rows(settlement_q, Transaction.settled_at, Transaction.amount)
+        if _payment_attempts_available(db) else {}
+    )
 
     days = sorted(set(auctions_by_day) | set(bids_by_day) | set(settlements_by_day))
     daily = []
@@ -614,6 +645,7 @@ def get_analytics(
 
     return AnalyticsResponse(
         scope=scope,
+        settlement_metrics_available=_payment_attempts_available(db),
         filters=AnalyticsFilters(
             start_date=selected_start, end_date=selected_end, category_id=category_id
         ),

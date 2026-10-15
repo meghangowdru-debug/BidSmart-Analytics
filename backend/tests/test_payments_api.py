@@ -21,6 +21,7 @@ from app.models.role import Role
 from app.models.transaction import (
     PaymentAttempt,
     PaymentAttemptStatus,
+    PaymentWebhookEvent,
     PaymentStatus,
     Transaction,
 )
@@ -81,6 +82,11 @@ def payment_api():
                 password_hash="test", full_name="Seller",
                 role_id=roles["SELLER"].id, status=UserStatus.ACTIVE,
             ),
+            5: User(
+                id=5, username="seller_two", email="seller2@test",
+                password_hash="test", full_name="Seller Two",
+                role_id=roles["SELLER"].id, status=UserStatus.ACTIVE,
+            ),
         }
         db.add_all(users.values())
         category = Category(name="Electronics", slug="electronics", icon_name="Cpu")
@@ -89,7 +95,7 @@ def payment_api():
         products = [
             Product(
                 id=index,
-                seller_id=users[4].id,
+                seller_id=users[5].id if index == 1 else users[4].id,
                 category_id=category.id,
                 title=f"Product {index}",
                 description="Test product",
@@ -122,7 +128,7 @@ def payment_api():
             Transaction(
                 auction_id=index,
                 buyer_id=buyer_id,
-                seller_id=users[4].id,
+                seller_id=users[5].id if index == 1 else users[4].id,
                 amount=Decimal(amount),
                 payment_reference=f"TX-API-{index}",
                 payment_status=payment_status,
@@ -170,6 +176,7 @@ def test_payment_routes_are_registered_under_api_v1(payment_api):
     assert "/api/v1/payments/verify" in paths
     assert "/api/v1/payments/webhook" in paths
     assert "/api/v1/payments/me/transactions" in paths
+    assert "/api/v1/payments/me/seller-transactions" in paths
     assert "/api/v1/payments/admin/transactions" in paths
 
 
@@ -232,6 +239,134 @@ def test_won_auctions_and_payment_history_are_scoped_to_authenticated_buyer(
     assert other_buyer_history["items"][0]["auction_id"] == 2
     assert other_buyer_history["items"][0]["payment_verified"] is True
     assert other_buyer_wins["items"][0]["payment_verified"] is True
+
+
+def test_seller_payment_history_and_totals_are_scoped_to_authenticated_seller(
+    payment_api,
+):
+    payment_api.actor["id"] = 4
+    response = payment_api.client.get(
+        "/api/v1/payments/me/seller-transactions"
+    )
+
+    assert response.status_code == 200, response.text
+    seller_data = response.json()
+    assert seller_data["total"] == 1
+    assert seller_data["summary"] == {
+        "total_sales": "200.00",
+        "verified_payment_total": "200.00",
+        "simulated_settlement_total": "200.00",
+        "pending_settlements": "0.00",
+        "completed_settlements": "200.00",
+        "transaction_count": 1,
+    }
+    assert {item["auction_id"] for item in seller_data["items"]} == {2}
+    completed = next(item for item in seller_data["items"] if item["auction_id"] == 2)
+    assert completed["payment_verified"] is True
+    assert completed["settlement_type"] == "SIMULATED_DEMO"
+
+    payment_api.actor["id"] = 5
+    other_seller = payment_api.client.get(
+        "/api/v1/payments/me/seller-transactions"
+    )
+    assert other_seller.status_code == 200
+    assert [item["auction_id"] for item in other_seller.json()["items"]] == [1]
+    assert other_seller.json()["summary"] == {
+        "total_sales": "0.00",
+        "verified_payment_total": "0.00",
+        "simulated_settlement_total": "0.00",
+        "pending_settlements": "100.00",
+        "completed_settlements": "0.00",
+        "transaction_count": 1,
+    }
+
+
+def test_verified_payment_is_not_reported_as_completed_settlement_without_confirmation(
+    payment_api,
+):
+    with payment_api.session_factory() as db:
+        pending_transaction = db.query(Transaction).filter_by(auction_id=1).one()
+        db.add(
+            PaymentAttempt(
+                transaction_id=pending_transaction.id,
+                provider_order_id="order_api_pending_settlement",
+                provider_payment_id="pay_api_pending_settlement",
+                amount_minor=10000,
+                currency="USD",
+                status=PaymentAttemptStatus.PAYMENT_COMPLETED,
+            )
+        )
+        db.commit()
+
+    payment_api.actor["id"] = 5
+    response = payment_api.client.get(
+        "/api/v1/payments/me/seller-transactions"
+    )
+
+    assert response.status_code == 200, response.text
+    summary = response.json()["summary"]
+    assert summary["verified_payment_total"] == "100.00"
+    assert summary["total_sales"] == "100.00"
+    assert summary["pending_settlements"] == "100.00"
+    assert summary["completed_settlements"] == "0.00"
+    assert summary["simulated_settlement_total"] == "0.00"
+
+    payment_api.actor["id"] = 3
+    administrator = payment_api.client.get(
+        "/api/v1/payments/me/seller-transactions"
+    )
+    assert administrator.status_code == 200
+    assert administrator.json()["items"] == []
+
+    payment_api.actor["id"] = 1
+    buyer_denied = payment_api.client.get(
+        "/api/v1/payments/me/seller-transactions"
+    )
+    assert buyer_denied.status_code == 403
+
+
+def test_payment_history_returns_service_unavailable_when_payment_attempt_table_missing(
+    payment_api,
+):
+    PaymentAttempt.__table__.drop(bind=payment_api.engine)
+    payment_api.actor["id"] = 4
+
+    response = payment_api.client.get(
+        "/api/v1/payments/me/seller-transactions"
+    )
+
+    assert response.status_code == 503
+    assert "database schema is missing" in response.json()["detail"]
+
+
+def test_payment_history_returns_503_when_transactions_lifecycle_column_missing(
+    payment_api,
+):
+    from sqlalchemy import text
+
+    with payment_api.engine.begin() as connection:
+        connection.execute(text("DROP INDEX IF EXISTS idx_transactions_settled_at"))
+        connection.execute(text("ALTER TABLE transactions DROP COLUMN settled_at"))
+    payment_api.actor["id"] = 4
+
+    response = payment_api.client.get("/api/v1/payments/me/seller-transactions")
+
+    assert response.status_code == 503
+    assert "database schema is missing" in response.json()["detail"]
+
+
+def test_webhook_returns_service_unavailable_when_webhook_table_missing(payment_api):
+    PaymentWebhookEvent.__table__.drop(bind=payment_api.engine)
+
+    response = payment_api.client.post(
+        "/api/v1/payments/webhook",
+        headers={"X-Razorpay-Signature": "untrusted-signature"},
+        content=b"{}",
+    )
+
+    assert response.status_code == 503
+    assert "database schema is missing" in response.json()["detail"]
+
 
 @pytest.mark.parametrize(
     "path",

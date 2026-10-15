@@ -206,6 +206,41 @@ def test_admin_metrics_count_only_authoritative_settlements(db):
     assert sum(item.count for item in result.auction_status_distribution) == 3
 
 
+def test_nonpayment_analytics_remain_available_without_payment_attempts_table(db):
+    seeded = _seed(db)
+    PaymentAttempt.__table__.drop(bind=db.get_bind())
+
+    result = _get(db, seeded["admin"])
+
+    assert result.settlement_metrics_available is False
+    assert result.kpis.total_products == 3
+    assert result.kpis.total_auctions == 3
+    assert result.kpis.valid_bids == 2
+    assert result.kpis.settled_transactions == 0
+    assert result.kpis.settled_sales_value == Decimal("0.00")
+    assert all(item.settled_transactions == 0 for item in result.category_performance)
+
+
+def test_analytics_survive_legacy_transactions_table_without_settled_at(db):
+    from sqlalchemy import text
+
+    seeded = _seed(db)
+    bind = db.get_bind()
+    PaymentAttempt.__table__.drop(bind=bind)
+    with bind.begin() as connection:
+        connection.execute(text("DROP INDEX IF EXISTS idx_transactions_settled_at"))
+        connection.execute(text("ALTER TABLE transactions DROP COLUMN settled_at"))
+    db.info.clear()
+
+    for user_key in ("admin", "seller_one"):
+        result = _get(db, seeded[user_key])
+
+        assert result.settlement_metrics_available is False
+        assert result.kpis.total_auctions >= 1
+        assert result.kpis.settled_transactions == 0
+        assert all(day.settlements == 0 for day in result.daily_trends)
+
+
 def test_product_auction_bid_and_settlement_changes_are_reflected_from_database(db):
     seeded = _seed(db)
     today = seeded["now"].date()

@@ -115,6 +115,25 @@ describe('AnalyticsPage', () => {
     expect(await screen.findByText('Analytics request failed')).toBeInTheDocument();
   });
 
+  it('labels settlement metrics unavailable instead of presenting zeros when payment schema is missing', async () => {
+    listCategories.mockResolvedValue([]);
+    getAnalytics.mockResolvedValue({
+      ...analyticsResponse,
+      settlement_metrics_available: false,
+    });
+
+    render(
+      <BrowserRouter>
+        <AnalyticsPage />
+      </BrowserRouter>,
+    );
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Verified settlement analytics are unavailable',
+    );
+    expect(screen.getAllByText('Unavailable').length).toBeGreaterThan(0);
+  });
+
   it('shows the empty state when the API returns no recorded activity', async () => {
     listCategories.mockResolvedValue([]);
     getAnalytics.mockResolvedValue(analyticsResponse);

@@ -5,16 +5,18 @@ from math import ceil
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
-from sqlalchemy import desc
+from sqlalchemy import and_, case, desc, func
+from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_admin, require_buyer_only
+from app.api.deps import get_db, require_admin, require_buyer_only, require_seller
 from app.models.auction import Auction, AuctionStatus
 from app.models.product import Product
 from app.models.transaction import (
     PaymentAttempt,
     PaymentAttemptStatus,
     PaymentStatus,
+    SettlementType,
     Transaction,
 )
 from app.models.user import User
@@ -27,12 +29,35 @@ from app.schemas.payment import (
     PaymentVerificationIn,
     PaymentVerificationOut,
     PaymentWebhookOut,
+    SellerPaymentSummary,
+    SellerPaymentTransactionOut,
+    SellerPaymentTransactionPage,
     WonAuctionPaymentPage,
     WonAuctionPaymentOut,
 )
 from app.services.payment_service import payment_service
 
 router = APIRouter()
+
+
+def _require_payment_tables(db: Session, *, webhook_events: bool = False) -> None:
+    required = ["payment_attempts"]
+    if webhook_events:
+        required.append("payment_webhook_events")
+    inspector = sqlalchemy_inspect(db.get_bind())
+    missing = [table for table in required if not inspector.has_table(table)]
+    if not missing and not {"settlement_type", "payment_status", "settled_at"}.issubset(
+        {column["name"] for column in inspector.get_columns("transactions")}
+    ):
+        missing = ["transactions lifecycle columns"]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Payment features are temporarily unavailable because required "
+                "database schema is missing. Contact the platform administrator."
+            ),
+        )
 
 
 def _payment_required(payment_status: Optional[PaymentStatus]) -> bool:
@@ -46,6 +71,7 @@ def _payment_verified(transaction: Optional[Transaction], attempt: Optional[Paym
     return bool(
         transaction
         and transaction.payment_status == PaymentStatus.SETTLEMENT_COMPLETED_DEMO
+        and transaction.settlement_type == SettlementType.SIMULATED_DEMO
         and transaction.settled_at is not None
         and attempt
         and attempt.status == PaymentAttemptStatus.PAYMENT_COMPLETED
@@ -88,6 +114,7 @@ def list_won_auction_payments(
     db: Session = Depends(get_db),
     current_buyer: User = Depends(require_buyer_only),
 ):
+    _require_payment_tables(db)
     query = (
         db.query(Auction, Product, Transaction, PaymentAttempt)
         .join(Product, Product.id == Auction.product_id)
@@ -149,6 +176,7 @@ def create_payment_order(
     db: Session = Depends(get_db),
     current_buyer: User = Depends(require_buyer_only),
 ):
+    _require_payment_tables(db)
     return payment_service.create_order(
         db, buyer_id=current_buyer.id, auction_id=auction_id
     )
@@ -164,6 +192,7 @@ def verify_payment(
     db: Session = Depends(get_db),
     current_buyer: User = Depends(require_buyer_only),
 ):
+    _require_payment_tables(db)
     return payment_service.verify_payment(
         db,
         buyer_id=current_buyer.id,
@@ -184,6 +213,7 @@ async def receive_payment_webhook(
     signature: str = Header(..., alias="X-Razorpay-Signature"),
     event_id: Optional[str] = Header(None, alias="X-Razorpay-Event-Id"),
 ):
+    _require_payment_tables(db, webhook_events=True)
     raw_body = await request.body()
     return payment_service.process_webhook(
         db,
@@ -204,6 +234,7 @@ def list_my_transactions(
     db: Session = Depends(get_db),
     current_buyer: User = Depends(require_buyer_only),
 ):
+    _require_payment_tables(db)
     query = (
         db.query(Transaction, Product, PaymentAttempt)
         .join(Auction, Auction.id == Transaction.auction_id)
@@ -228,6 +259,112 @@ def list_my_transactions(
 
 
 @router.get(
+    "/me/seller-transactions",
+    response_model=SellerPaymentTransactionPage,
+    summary="List settlement history for the authenticated seller",
+)
+def list_my_seller_transactions(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_seller: User = Depends(require_seller),
+):
+    _require_payment_tables(db)
+    query = (
+        db.query(Transaction, Product, PaymentAttempt)
+        .join(Auction, Auction.id == Transaction.auction_id)
+        .join(Product, Product.id == Auction.product_id)
+        .outerjoin(PaymentAttempt, PaymentAttempt.transaction_id == Transaction.id)
+        .filter(
+            Transaction.seller_id == current_seller.id,
+            Product.seller_id == current_seller.id,
+        )
+    )
+    verified_settlement = and_(
+        Transaction.payment_status == PaymentStatus.SETTLEMENT_COMPLETED_DEMO,
+        Transaction.settlement_type == SettlementType.SIMULATED_DEMO,
+        Transaction.settled_at.isnot(None),
+        PaymentAttempt.status == PaymentAttemptStatus.PAYMENT_COMPLETED,
+        PaymentAttempt.provider_payment_id.isnot(None),
+        PaymentAttempt.currency == "USD",
+        PaymentAttempt.amount_minor == Transaction.amount * 100,
+    )
+    verified_payment = and_(
+        Transaction.settlement_type == SettlementType.SIMULATED_DEMO,
+        PaymentAttempt.status == PaymentAttemptStatus.PAYMENT_COMPLETED,
+        PaymentAttempt.provider_payment_id.isnot(None),
+        PaymentAttempt.currency == "USD",
+        PaymentAttempt.amount_minor == Transaction.amount * 100,
+    )
+    summary_row = (
+        db.query(
+            func.coalesce(
+                func.sum(case(
+                    (verified_settlement, Transaction.amount), else_=0
+                )),
+                0,
+            ).label("completed_settlements"),
+            func.coalesce(
+                func.sum(case(
+                    (and_(
+                        Transaction.payment_status == PaymentStatus.SETTLEMENT_PENDING_DEMO,
+                        Transaction.settlement_type == SettlementType.SIMULATED_DEMO,
+                    ),
+                     Transaction.amount),
+                    else_=0,
+                )),
+                0,
+            ).label("pending_settlements"),
+            func.coalesce(
+                func.sum(case(
+                    (verified_payment, Transaction.amount), else_=0
+                )),
+                0,
+            ).label("verified_payment_total"),
+            func.count(Transaction.id).label("transaction_count"),
+        )
+        .outerjoin(PaymentAttempt, PaymentAttempt.transaction_id == Transaction.id)
+        .join(Auction, Transaction.auction_id == Auction.id)
+        .join(Product, Auction.product_id == Product.id)
+        .filter(
+            Transaction.seller_id == current_seller.id,
+            Product.seller_id == current_seller.id,
+        )
+        .one()
+    )
+    total = query.count()
+    rows = (
+        query.order_by(desc(Transaction.created_at), desc(Transaction.id))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return SellerPaymentTransactionPage(
+        items=[
+            SellerPaymentTransactionOut(
+                **_transaction_out((transaction, product, attempt)).model_dump(),
+                settlement_type=transaction.settlement_type,
+            )
+            for transaction, product, attempt in rows
+        ],
+        summary=SellerPaymentSummary(
+            # Keep total_sales for compatibility; this is verified demo
+            # payment volume, not seller payout or completed-settlement value.
+            total_sales=summary_row.verified_payment_total,
+            verified_payment_total=summary_row.verified_payment_total,
+            simulated_settlement_total=summary_row.completed_settlements,
+            pending_settlements=summary_row.pending_settlements,
+            completed_settlements=summary_row.completed_settlements,
+            transaction_count=summary_row.transaction_count,
+        ),
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=_page(page=page, page_size=page_size, total=total),
+    )
+
+
+@router.get(
     "/admin/transactions",
     response_model=AdminPaymentTransactionPage,
     summary="Monitor payment transactions (administrator only)",
@@ -243,6 +380,7 @@ def list_all_transactions(
     db: Session = Depends(get_db),
     admin_user: User = Depends(require_admin),
 ):
+    _require_payment_tables(db)
     if created_from and created_to and created_to < created_from:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

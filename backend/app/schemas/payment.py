@@ -6,7 +6,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from app.models.transaction import PaymentStatus
+from app.models.transaction import PaymentStatus, SettlementType
 
 
 class PaymentOrderOut(BaseModel):
@@ -76,6 +76,30 @@ class AdminPaymentTransactionOut(PaymentTransactionOut):
 
 class PaymentTransactionPage(BaseModel):
     items: List[PaymentTransactionOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
+class SellerPaymentTransactionOut(PaymentTransactionOut):
+    settlement_type: SettlementType
+
+
+class SellerPaymentSummary(BaseModel):
+    """Verified demo transaction totals; none of these fields represent seller payouts."""
+
+    total_sales: Decimal
+    verified_payment_total: Decimal
+    simulated_settlement_total: Decimal
+    pending_settlements: Decimal
+    completed_settlements: Decimal
+    transaction_count: int
+
+
+class SellerPaymentTransactionPage(BaseModel):
+    items: List[SellerPaymentTransactionOut]
+    summary: SellerPaymentSummary
     total: int
     page: int
     page_size: int

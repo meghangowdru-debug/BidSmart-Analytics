@@ -17,6 +17,10 @@ export const paymentsApi = {
     const response = await apiClient.get('/payments/me/transactions', { params });
     return response.data;
   },
+  listMySellerTransactions: async (params = {}) => {
+    const response = await apiClient.get('/payments/me/seller-transactions', { params });
+    return response.data;
+  },
   listAdminTransactions: async (params = {}) => {
     const response = await apiClient.get('/payments/admin/transactions', { params });
     return response.data;

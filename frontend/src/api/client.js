@@ -53,6 +53,13 @@ export const getErrorMessage = (error) => {
     }
     return typeof detail === 'string' ? detail : JSON.stringify(detail);
   }
+  if (!error.response && (error.request || error.code === 'ERR_NETWORK' || error.message === 'Network Error')) {
+    return 'Cannot get a response from the server. It may be starting up, unreachable, blocked by CORS, '
+      + 'or it hit an internal error. Please retry in a moment; if this persists, contact the administrator.';
+  }
+  if (error.code === 'ECONNABORTED') {
+    return 'The server took too long to respond. It may be waking up; please retry.';
+  }
   return error.message || 'An unexpected error occurred. Please try again.';
 };
 

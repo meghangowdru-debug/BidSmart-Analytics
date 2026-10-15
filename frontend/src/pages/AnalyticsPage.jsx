@@ -182,6 +182,7 @@ export const AnalyticsPage = () => {
   const isLoading = !dateRangeError && !currentRequest;
   const error = dateRangeError || currentRequest?.error;
   const kpis = visibleData?.kpis;
+  const settlementMetricsAvailable = visibleData?.settlement_metrics_available !== false;
   const rankings = tableMode === 'products'
     ? visibleData?.product_rankings || EMPTY_RANKINGS
     : visibleData?.auction_rankings || EMPTY_RANKINGS;
@@ -206,9 +207,9 @@ export const AnalyticsPage = () => {
         ['Auctions', countFormat(kpis.total_auctions), `${countFormat(kpis.active_auctions)} active · ${countFormat(kpis.upcoming_auctions)} upcoming`, Gavel, 'amber'],
         ['Completed / cancelled', `${countFormat(kpis.completed_auctions)} / ${countFormat(kpis.cancelled_auctions)}`, 'Current status, filtered by listing date', Gavel, 'rose'],
         ['Recorded bids', countFormat(kpis.recorded_bids), `${countFormat(kpis.valid_bids)} not flagged as anomalous`, BarChart3, 'indigo'],
-        ['Settled transactions', countFormat(kpis.settled_transactions), 'Completed demo settlements only', ShoppingBag, 'emerald'],
-        ['Settled sales value', currency(kpis.settled_sales_value), 'Never includes open auction bids', CircleDollarSign, 'emerald'],
-        ['Average settled sale', currency(kpis.average_settled_selling_price), 'Completed settlement records only', CircleDollarSign, 'purple'],
+        ['Settled transactions (demo)', settlementMetricsAvailable ? countFormat(kpis.settled_transactions) : 'Unavailable', settlementMetricsAvailable ? 'Completed demo settlements only' : 'Payment-attempt schema unavailable', ShoppingBag, 'emerald'],
+        ['Settlement value (demo)', settlementMetricsAvailable ? currency(kpis.settled_sales_value) : 'Unavailable', 'Not real seller payouts', CircleDollarSign, 'emerald'],
+        ['Average settlement (demo)', settlementMetricsAvailable ? currency(kpis.average_settled_selling_price) : 'Unavailable', 'Not real seller payouts', CircleDollarSign, 'purple'],
       ];
     }
     if (visibleData.scope === 'seller') {
@@ -217,20 +218,20 @@ export const AnalyticsPage = () => {
         ['Auctions', countFormat(kpis.total_auctions), `${countFormat(kpis.active_auctions)} active · ${countFormat(kpis.upcoming_auctions)} upcoming`, Gavel, 'amber'],
         ['Completed / cancelled', `${countFormat(kpis.completed_auctions)} / ${countFormat(kpis.cancelled_auctions)}`, 'Your auction records', Gavel, 'rose'],
         ['Valid bids received', countFormat(kpis.valid_bids), 'Anomaly-flagged bids excluded', BarChart3, 'purple'],
-        ['Settled transactions', countFormat(kpis.settled_transactions), 'Completed demo settlements only', ShoppingBag, 'emerald'],
-        ['Settled revenue', currency(kpis.settled_sales_value), 'Never includes current bids', CircleDollarSign, 'emerald'],
-        ['Average settled sale', currency(kpis.average_settled_selling_price), 'From completed settlement records', CircleDollarSign, 'purple'],
+        ['Settled transactions (demo)', settlementMetricsAvailable ? countFormat(kpis.settled_transactions) : 'Unavailable', settlementMetricsAvailable ? 'Completed demo settlements only' : 'Payment-attempt schema unavailable', ShoppingBag, 'emerald'],
+        ['Settlement value (demo)', settlementMetricsAvailable ? currency(kpis.settled_sales_value) : 'Unavailable', 'Not real seller payouts', CircleDollarSign, 'emerald'],
+        ['Average settlement (demo)', settlementMetricsAvailable ? currency(kpis.average_settled_selling_price) : 'Unavailable', 'Not real seller payouts', CircleDollarSign, 'purple'],
       ];
     }
     return [
       ['Valid bids placed', countFormat(kpis.valid_bids), 'Anomaly-flagged bids excluded', BarChart3, 'indigo'],
       ['Auctions participated in', countFormat(kpis.auctions_participated), 'Distinct auctions with valid bids', Gavel, 'amber'],
       ['Auctions won', countFormat(kpis.auctions_won), 'Based on completed auction winner records', Gavel, 'purple'],
-      ['Purchases', countFormat(kpis.purchases), 'Completed settlement records only', ShoppingBag, 'emerald'],
-      ['Actual spending', currency(kpis.spending), 'Never includes current bids', CircleDollarSign, 'emerald'],
+      ['Purchases (demo)', settlementMetricsAvailable ? countFormat(kpis.purchases) : 'Unavailable', settlementMetricsAvailable ? 'Completed demo settlement records only' : 'Payment-attempt schema unavailable', ShoppingBag, 'emerald'],
+      ['Spending (demo)', settlementMetricsAvailable ? currency(kpis.spending) : 'Unavailable', 'Not actual buyer spending', CircleDollarSign, 'emerald'],
       ['Watchlist items', countFormat(kpis.watchlist_items), 'Your watchlist in the selected period', Boxes, 'rose'],
     ];
-  }, [visibleData, kpis]);
+  }, [visibleData, kpis, settlementMetricsAvailable]);
 
   const toggleSort = (key) => {
     if (sortBy === key) {
@@ -302,6 +303,11 @@ export const AnalyticsPage = () => {
               <StatsCard key={title} title={title} value={value} subtitle={subtitle} icon={Icon} color={color} />
             ))}
           </section>
+          {!settlementMetricsAvailable && (
+            <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Verified settlement analytics are unavailable because the payment-attempt database table is missing. Auction and bid analytics remain available; settlement totals are not shown as zero.
+            </p>
+          )}
 
           <section className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             <div className={`${chartCard} xl:col-span-2`}>
@@ -329,7 +335,9 @@ export const AnalyticsPage = () => {
                       <Tooltip labelFormatter={trendMode === 'daily' ? localDateLabel : undefined} contentStyle={tooltipStyle} />
                       <Line type="monotone" dataKey="auctions" name="Auctions" stroke="#4f46e5" strokeWidth={2} />
                       <Line type="monotone" dataKey="bids" name="Bids" stroke="#0ea5e9" strokeWidth={2} />
-                      <Line type="monotone" dataKey="settlements" name="Settlements" stroke="#10b981" strokeWidth={2} />
+                      {settlementMetricsAvailable && (
+                        <Line type="monotone" dataKey="settlements" name="Demo settlements" stroke="#10b981" strokeWidth={2} />
+                      )}
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -389,8 +397,8 @@ export const AnalyticsPage = () => {
                       <tr key={item.category_id} className="border-b border-slate-100 last:border-0">
                         <td className="py-2 pr-3 text-slate-700">{item.category_name}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{countFormat(item.products)}</td>
-                        <td className="px-2 py-2 text-right tabular-nums">{countFormat(item.settled_transactions)}</td>
-                        <td className="py-2 pl-2 text-right tabular-nums">{currency(item.settled_sales_value)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{settlementMetricsAvailable ? countFormat(item.settled_transactions) : '—'}</td>
+                        <td className="py-2 pl-2 text-right tabular-nums">{settlementMetricsAvailable ? currency(item.settled_sales_value) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -417,8 +425,8 @@ export const AnalyticsPage = () => {
                   setSortDirection(direction);
                 }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs">
                   <option value="valid_bids:desc">Most valid bids</option>
-                  <option value="settled_sales_value:desc">Highest settled sales</option>
-                  <option value="settled_sales_value:asc">Lowest settled sales</option>
+                  {settlementMetricsAvailable && <option value="settled_sales_value:desc">Highest demo settlements</option>}
+                  {settlementMetricsAvailable && <option value="settled_sales_value:asc">Lowest demo settlements</option>}
                   <option value="product_title:asc">Product title</option>
                   <option value="auction_status:asc">Auction status</option>
                 </select>
@@ -434,8 +442,8 @@ export const AnalyticsPage = () => {
                         ['Category', null],
                         ['Status', 'auction_status'],
                         ['Valid bids', 'valid_bids'],
-                        ['Settlements', 'settled_transactions'],
-                        ['Settled sales', 'settled_sales_value'],
+                        ['Demo settlements', settlementMetricsAvailable ? 'settled_transactions' : null],
+                        ['Demo settlement value', settlementMetricsAvailable ? 'settled_sales_value' : null],
                       ].map(([label, key]) => (
                         <th key={label} className="px-4 py-3">
                           {key ? (
@@ -454,8 +462,8 @@ export const AnalyticsPage = () => {
                         <td className="px-4 py-3 text-slate-600">{item.category_name}</td>
                         <td className="px-4 py-3 text-slate-600">{formatStatus(item.auction_status)}</td>
                         <td className="px-4 py-3 tabular-nums">{countFormat(item.valid_bids)}</td>
-                        <td className="px-4 py-3 tabular-nums">{countFormat(item.settled_transactions)}</td>
-                        <td className="px-4 py-3 tabular-nums">{currency(item.settled_sales_value)}</td>
+                        <td className="px-4 py-3 tabular-nums">{settlementMetricsAvailable ? countFormat(item.settled_transactions) : '—'}</td>
+                        <td className="px-4 py-3 tabular-nums">{settlementMetricsAvailable ? currency(item.settled_sales_value) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>

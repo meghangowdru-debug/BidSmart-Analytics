@@ -73,6 +73,7 @@ class AnalyticsResponse(BaseModel):
     scope: str
     currency: str = "USD"
     date_basis: str = "UTC"
+    settlement_metrics_available: bool = True
     filters: AnalyticsFilters
     kpis: AnalyticsKpis
     auction_status_distribution: List[AuctionStatusCount]
