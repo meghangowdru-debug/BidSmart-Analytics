@@ -1,0 +1,43 @@
+import React from 'react';
+import { Link, Navigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { LoadingSpinner } from './LoadingSpinner';
+
+export const ProtectedRoute = ({ children, allowedRoles = [] }) => {
+  const { isAuthenticated, role, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center">
+        <LoadingSpinner message="Verifying session credentials..." />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
+    return (
+      <div className="max-w-2xl mx-auto my-12 p-8 bg-rose-50 border border-rose-200 rounded-xl text-center">
+        <h2 className="text-xl font-bold text-rose-800 mb-2">Access denied</h2>
+        <p className="text-rose-600 mb-6">
+          Your current account role is <span className="font-semibold">{role}</span>, which lacks authorization
+          to access this workspace. This resource requires: {allowedRoles.join(' or ')}.
+        </p>
+        <div className="flex justify-center space-x-4">
+          <Link
+            to="/"
+            className="rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white hover:bg-indigo-700"
+          >
+            Return home
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return children;
+};
