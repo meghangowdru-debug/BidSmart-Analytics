@@ -42,4 +42,5 @@ See `docs/` for the pre-project documentation in Markdown and PDF formats. The P
 
 ## Project Status
 
-The website has been developed. Testing results and deployment readiness should be verified separately.
+The website has been developed. Testing results and deployment are done
+
